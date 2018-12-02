@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.tpp": "cpp",
+        "stdio.h": "c",
+        "types.h": "c"
+    },
+    "discord.enabled": false
+}
