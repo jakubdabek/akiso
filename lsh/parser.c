@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -14,6 +15,7 @@
 
 extern int current_terminal;
 extern sigset_t default_mask;
+extern struct termios terminal_config;
 
 char** parse_tokens(const char * const command, size_t * const argc, const char * const delimeters, const bool allow_empty)
 {
@@ -237,6 +239,11 @@ struct process* parse_process(const char * const command)
         bool is_out = false, is_in = false;
         if ((is_out = char_in_set('>', tokens[i])) || (is_in = char_in_set('<', tokens[i])))
         {
+            if (i == 0)
+            {
+                error = true;
+                break;
+            }
             if (is_in && is_out)
             {
                 error = true;
@@ -291,7 +298,7 @@ enum parse_result interpret_line(const char * const line)
     if (pipeline_size == 0)
     {
         if (bg)
-            return PR_ERROR;
+            return PR_SYNTAX_ERROR;
         else
             return PR_OK;
     }
@@ -305,7 +312,7 @@ enum parse_result interpret_line(const char * const line)
         if (process == NULL)
         {
             destroy_job(job);
-            return PR_ERROR;
+            return PR_SYNTAX_ERROR;
         }
 
         process_add_last(&(job->pipeline), process);
@@ -323,13 +330,13 @@ enum parse_result interpret_line(const char * const line)
         if (job->pipeline->next != NULL)
         {
             destroy_job(job);
-            return PR_ERROR;
+            return PR_SYNTAX_ERROR;
         }
 
         if (job->pipeline->argc > 2)
         {
             destroy_job(job);
-            return PR_ERROR;
+            return PR_SYNTAX_ERROR;
         }
         else if (job->pipeline->argc == 1)
         {
@@ -352,7 +359,16 @@ enum parse_result interpret_line(const char * const line)
     else
     {
         start_job(job);
-        get_terminal(current_terminal, getpid());
+        if (get_terminal(current_terminal, getpgrp()) == -1)
+        {
+            perror("tty");
+            exit(1);
+        }
+        if (tcsetattr(current_terminal, TCSADRAIN, &terminal_config) == -1)
+        {
+            perror("tty");
+            exit(1);
+        }
     }
 
     return PR_OK;
@@ -451,11 +467,17 @@ int create_pipe(int fds[2], bool close_on_exec)
     return 0;
 }
 
-int read_error(const int fd, char * const buff, size_t buffsize)
+int read_error(const int fd, int * const err, char * const buff, size_t buffsize)
 {
     while (true)
     {
-        int ret = read(fd, buff, buffsize);
+        int ret = read(fd, err, sizeof(*err));
+        if (ret == 0)
+            return 0;
+        if ((ret == -1 && errno != EINTR) || ret != sizeof(*err))
+            return -1;
+
+        ret += read(fd, buff, buffsize);
         if (ret >= 0)
         {
             buff[ret] = '\0';
@@ -468,8 +490,23 @@ int read_error(const int fd, char * const buff, size_t buffsize)
     }
 }
 
+int write_error(const int fd, const char * const message, bool fatal)
+{
+    int ret = write(fd, &errno, sizeof(errno));
+    ret += write(fd, message, strlen(message));
+    if (fatal)
+        _exit(1);
+    
+    return ret;
+}
+
+
 int start_job(struct job *job)
 {
+    if (job->fg)
+    {
+        tcgetattr(current_terminal, &terminal_config);
+    }
     if (job == NULL)
         return -1;
     int control_pipe[2] = { -1, -1 };
@@ -486,6 +523,9 @@ int start_job(struct job *job)
     int error_pipe[2] = { -1, -1 };
     char error_buff[128];
     int first_error_pipe_read = -1;
+    int child_errno = 0;
+
+
     while (current_process != NULL)
     {
         if (current_process->next == NULL)
@@ -511,10 +551,10 @@ int start_job(struct job *job)
             thispid = getpid();
             reset_job_control_handlers();
             sigprocmask(SIG_SETMASK, &default_mask, NULL);
+            errno = 0;
             if (link_pipes(prevfd, last ? STDOUT_FILENO : pipefds[1]) == -1 || do_redirects(current_process->redirects) == -1)
             {
-                write(error_pipe[1], "pipe or redirect", 16);
-                _exit(1);
+                write_error(error_pipe[1], "pipe or redirect", true);
             }
             close_pipe(&prevfd, 1);
             if (!last)
@@ -527,18 +567,17 @@ int start_job(struct job *job)
                 
                 if (job->fg)
                 {
+                    errno = 0;
                     if (get_terminal(current_terminal, getpgrp()) == -1)
                     {
-                        write(error_pipe[1], "couldn't get terminal", 21);
-                        _exit(1);
+                        write_error(error_pipe[1], "couldn't get terminal", true);
                     }
                 }
 
                 char c;
                 if (close_pipe(control_pipe, 2) == -1)
                 {
-                    write(error_pipe[1], "closing control", 15);
-                    _exit(1);
+                    write_error(error_pipe[1], "pipe", true);
                 }
                 //printf("reading control\n");
                 while (read(control_pipe[0], &c, 1) == -1 && errno == EINTR) {}
@@ -570,7 +609,7 @@ int start_job(struct job *job)
                 goto error_label;
             if (!first)
             {
-                if (read_error(error_pipe[0], error_buff, 128) != 0)
+                if (read_error(error_pipe[0], &child_errno, error_buff, 128) != 0)
                 {
                     goto error_label;
                 }
@@ -583,20 +622,28 @@ int start_job(struct job *job)
         current_process = current_process->next;
         first = false;
     }
+
+    close_pipe(control_pipe, 3);
+    if (read_error(first_error_pipe_read, &child_errno, error_buff, 128) != 0)
+        goto error_label;
+
+    job_add_first(&current_job, job);
+
     if (job->fg)
     {
-        close_pipe(control_pipe, 3);
-        if (read_error(first_error_pipe_read, error_buff, 128) != 0)
-            goto error_label;
         int status;
         while (waitpid(-job->pgid, &status, 0) > 0) {}
     }
 
     return 0;
 
-error_label:
+error_label:;
     //TODO: cleanup
-    printf("ERROR: %s\n", error_buff);
+
+    int olderr = errno;
+    perror(error_buff);
+    errno = olderr;
+    //printf("ERROR: %s\n", error_buff);
     return -1;
 }
 

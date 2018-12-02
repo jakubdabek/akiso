@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <errno.h>
+#include <termios.h>
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -160,6 +161,7 @@ char** parse_tokens(const char *command, size_t *argc, const char *delimeters, b
 
 int current_terminal;
 
+struct termios terminal_config;
 // find / 2> /dev/null | wc -l & 
 // cat aa 2>&1 >file.txt| grep -v wow\ 123 | xd >/dev/null
 void start()
@@ -171,6 +173,7 @@ void start()
     }
     current_terminal = copy_to_high_fd(STDIN_FILENO, 250);
     prepare_handlers();
+    tcgetattr(current_terminal, &terminal_config);
 
     char buff[BUFF_SIZE];
     while (true)
@@ -193,8 +196,19 @@ void start()
         //     }
         //     free(args);
         // }
-        if (!interpret_line(buff))
+        switch (interpret_line(buff))
+        {
+        case PR_SYNTAX_ERROR:
+            fprintf(stderr, "\"%s\" : syntax error\n", buff);
             break;
+        case PR_ERROR_ERRNO:
+            perror(buff);
+            break;
+        case PR_OK:
+            break;
+        case PR_EXIT:
+            return;
+        }
 
         // free(piped);
     }
