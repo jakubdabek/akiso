@@ -1,4 +1,39 @@
-void reset_job_control_handlers()
+#include "execute.h"
+
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <stdbool.h>
+#include <setjmp.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+
+#define BUFF_SIZE 512
+
+extern int current_terminal;
+extern sigset_t default_mask;
+extern struct termios terminal_config;
+extern jmp_buf env;
+
+static int get_terminal(int tty, pid_t pid)
+{
+    sigset_t set, oldset;
+    sigemptyset(&set);
+    sigaddset(&set, SIGTTOU);
+    sigemptyset(&oldset);
+    sigprocmask(SIG_BLOCK, &set, &oldset);
+    int ret = tcsetpgrp(current_terminal, getpid());
+    sigprocmask(SIG_SETMASK, &oldset, NULL);
+
+    return ret;
+}
+
+static void reset_job_control_handlers()
 {
     set_signal_handler(SIGTSTP, SIG_DFL);
     set_signal_handler(SIGTTIN, SIG_DFL);
@@ -8,7 +43,7 @@ void reset_job_control_handlers()
     set_signal_handler(SIGCHLD, SIG_DFL);
 }
 
-int do_redirects(struct redirect *redirect)
+static int do_redirects(struct redirect *redirect)
 {
     while (redirect != NULL)
     {
@@ -43,7 +78,7 @@ int do_redirects(struct redirect *redirect)
     return 0;
 }
 
-int link_pipes(int in_fd, int out_fd)
+static int link_pipes(int in_fd, int out_fd)
 {
     int in_ret = 0, out_ret = 0;
     if (in_fd != -2)
@@ -55,7 +90,7 @@ int link_pipes(int in_fd, int out_fd)
     return 0;
 }
 
-int close_pipe(int fds[2], int which)
+static int close_pipe(int fds[2], int which)
 {
     int ret = 0;
     if (which & 1 && fds[0] > 0)
@@ -76,7 +111,7 @@ int close_pipe(int fds[2], int which)
     return ret;
 }
 
-int create_pipe(int fds[2], bool close_on_exec)
+static int create_pipe(int fds[2], bool close_on_exec)
 {
     if (pipe(fds) == -1)
         return -1;
@@ -91,7 +126,7 @@ int create_pipe(int fds[2], bool close_on_exec)
     return 0;
 }
 
-int read_error(const int fd, int * const err, char * const buff, size_t buffsize)
+static int read_error(const int fd, int * const err, char * const buff, size_t buffsize)
 {
     while (true)
     {
@@ -110,7 +145,7 @@ int read_error(const int fd, int * const err, char * const buff, size_t buffsize
     }
 }
 
-int write_error(const int fd, const char * const message, bool fatal)
+static int write_error(const int fd, const char * const message, bool fatal)
 {
     int ret = write(fd, &errno, sizeof(errno));
     ret += write(fd, message, strlen(message));
@@ -120,8 +155,27 @@ int write_error(const int fd, const char * const message, bool fatal)
     return ret;
 }
 
+static int start_job_internal(struct job *job);
 
 int start_job(struct job *job)
+{
+    int ret = start_job_internal(job);
+    if (get_terminal(current_terminal, getpgrp()) == -1)
+    {
+        perror("tty");
+        longjmp(env, 1);
+    }
+    if (tcsetattr(current_terminal, TCSADRAIN, &terminal_config) == -1)
+    {
+        perror("tty");
+        longjmp(env, 1);
+    }
+    tcflush(current_terminal, TCIFLUSH);
+
+    return ret;
+}
+
+static int start_job_internal(struct job *job)
 {
     if (job->fg)
     {

@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,6 +14,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+jmp_buf env;
 
 bool print_jobs()
 {
@@ -240,6 +242,9 @@ void cleanup()
 
 int main(int argc, char **argv)
 {
-    start();
+    if (setjmp(env) == 0)
+    {
+        start();
+    }
     cleanup();
 }

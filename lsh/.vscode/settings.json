@@ -2,7 +2,8 @@
     "files.associations": {
         "*.tpp": "cpp",
         "stdio.h": "c",
-        "types.h": "c"
+        "types.h": "c",
+        "errno.h": "c"
     },
     "discord.enabled": false
 }

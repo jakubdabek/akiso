@@ -31,26 +31,23 @@ struct job
     struct job *next;
 };
 
-#include "utility.h"
-
-static inline LINKED_LIST_ADD_FIRST(job)
-static inline LINKED_LIST_ADD_LAST(job)
-
-struct job* remove_job(struct job **ptr, pid_t pid);
-void empty_job(struct job *job);
-void destroy_job(struct job *job);
-void destroy_redirect(struct redirect * const redirect);
-
 extern struct job *current_job;
 extern struct job *pending_jobs;
 extern struct job *pending_removed_jobs;
 
+#include "utility.h"
+
+static inline LINKED_LIST_ADD_FIRST(job)
+static inline LINKED_LIST_ADD_LAST(job)
+static inline LINKED_LIST_ADD_LAST(process)
+static inline LINKED_LIST_ADD_LAST(redirect)
+static inline LINKED_LIST_SIZE(process)
+
+struct job* remove_job(struct job **ptr, pid_t pid);
+void empty_job(struct job *job);
+void destroy_job(struct job *job);
+
 void empty_process(struct process *process);
 void destroy_process(struct process *process);
 
-static inline LINKED_LIST_ADD_LAST(process)
-static inline LINKED_LIST_ADD_LAST(redirect)
-
-static inline LINKED_LIST_SIZE(process)
-
-int start_job(struct job *job);
+void destroy_redirect(struct redirect * const redirect);

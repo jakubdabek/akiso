@@ -8,22 +8,6 @@ struct job *pending_jobs = NULL;
 struct job *pending_removed_jobs = NULL;
 
 
-// void push_job(struct job **head, struct job *new_job)
-// {
-//     if (head == NULL)
-//         return;
-
-//     if (*head == NULL)
-//     {
-//         *head = new_job;
-//     }
-//     else
-//     {
-//         new_job->next = *head;
-//         *head = new_job;
-//     }
-// }
-
 struct job* remove_job(struct job **ptr, pid_t pid)
 {
     if (ptr == NULL)

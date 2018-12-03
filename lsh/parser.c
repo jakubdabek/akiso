@@ -1,6 +1,7 @@
 #include "utility.h"
 #include "parser.h"
 #include "job.h"
+#include "execute.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -13,9 +14,6 @@
 #include <fcntl.h>
 #include <stdio.h>
 
-extern int current_terminal;
-extern sigset_t default_mask;
-extern struct termios terminal_config;
 
 char** parse_tokens(const char * const command, size_t * const argc, const char * const delimeters, const bool allow_empty)
 {
@@ -126,19 +124,6 @@ char** parse_tokens(const char * const command, size_t * const argc, const char 
     return arguments;
 }
 
-int get_terminal(int tty, pid_t pid)
-{
-    sigset_t set, oldset;
-    sigemptyset(&set);
-    sigaddset(&set, SIGTTOU);
-    sigemptyset(&oldset);
-    sigprocmask(SIG_BLOCK, &set, &oldset);
-    int ret = tcsetpgrp(current_terminal, getpid());
-    sigprocmask(SIG_SETMASK, &oldset, NULL);
-
-    return ret;
-}
-
 bool check_redirect(struct redirect * const redirect)
 {
     const char *proc;
@@ -218,7 +203,7 @@ struct redirect* parse_redirect(const char * const str, bool is_out)
 }
 
 #define EMPTY_PROCESS ((struct process*)0)
-#define ERROR_PROCESS ((struct process*)-1)
+#define ERROR_PROCESS ((struct process*)1)
 
 struct process* parse_process(const char * const command)
 {
@@ -369,19 +354,7 @@ enum parse_result interpret_line(const char * const line)
     else
     {
         start_job(job);
-        if (get_terminal(current_terminal, getpgrp()) == -1)
-        {
-            perror("tty");
-            exit(1);
-        }
-        if (tcsetattr(current_terminal, TCSADRAIN, &terminal_config) == -1)
-        {
-            perror("tty");
-            exit(1);
-        }
-        tcflush(current_terminal, TCIFLUSH);
     }
 
     return PR_OK;
 }
-
