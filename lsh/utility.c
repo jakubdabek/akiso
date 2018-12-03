@@ -1,11 +1,11 @@
 #include "utility.h"
 
 #include <stdbool.h>
-#include <stdio.h>
 #include <signal.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
 #include <errno.h>
+#include <stdio.h>
 
 const char * const whitespace = " \t\n\r";
 

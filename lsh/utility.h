@@ -44,3 +44,30 @@ void type##_add_first(struct type **head, struct type *arg) \
         *head = arg;                                        \
     }                                                       \
 }
+
+#define LINKED_LIST_SIZE(type)                              \
+size_t type##_list_size(const struct type *head)            \
+{                                                           \
+    size_t size = 0;                                        \
+    while (head != NULL)                                    \
+    {                                                       \
+        size++;                                             \
+        head = head->next;                                  \
+    }                                                       \
+    return size;                                            \
+}
+
+#define LINKED_LIST_POP_FIRST(type)                         \
+struct type* type##_pop_first(struct type **head)           \
+{                                                           \
+    if (head == NULL || *head == NULL)                      \
+    {                                                       \
+        return NULL;                                        \
+    }                                                       \
+    else                                                    \
+    {                                                       \
+        struct type *tmp = *head;                           \
+        *head = (*head)->next;                              \
+        return tmp;                                         \
+    }                                                       \
+}

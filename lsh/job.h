@@ -27,6 +27,7 @@ struct job
     pid_t pgid;
     bool fg;
     struct process *pipeline;
+    size_t pipeline_size;
     struct job *next;
 };
 
@@ -40,7 +41,7 @@ void destroy_job(struct job *job);
 void destroy_redirect(struct redirect * const redirect);
 
 extern struct job *current_job;
-extern int pending_jobs;
+extern struct job *pending_jobs;
 extern struct job *pending_removed_jobs;
 
 void empty_process(struct process *process);
@@ -48,5 +49,7 @@ void destroy_process(struct process *process);
 
 static inline LINKED_LIST_ADD_LAST(process)
 static inline LINKED_LIST_ADD_LAST(redirect)
+
+static inline LINKED_LIST_SIZE(process)
 
 int start_job(struct job *job);

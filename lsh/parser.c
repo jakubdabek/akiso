@@ -1,16 +1,16 @@
-#include "parser.h"
 #include "utility.h"
+#include "parser.h"
 #include "job.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <termios.h>
-#include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 
 extern int current_terminal;
@@ -217,6 +217,9 @@ struct redirect* parse_redirect(const char * const str, bool is_out)
     return redirect;
 }
 
+#define EMPTY_PROCESS ((struct process*)0)
+#define ERROR_PROCESS ((struct process*)-1)
+
 struct process* parse_process(const char * const command)
 {
     size_t argc;
@@ -224,7 +227,7 @@ struct process* parse_process(const char * const command)
     if (argc <= 0)
     {
         free(tokens);
-        return NULL;
+        return EMPTY_PROCESS;
     }
     struct process *process = malloc(sizeof(*process));
     empty_process(process);
@@ -274,7 +277,7 @@ struct process* parse_process(const char * const command)
     if (error)
     {
         destroy_process(process);
-        return NULL;
+        return ERROR_PROCESS;
     }
 
     return process;
@@ -309,14 +312,21 @@ enum parse_result interpret_line(const char * const line)
     for (size_t i = 0; i < pipeline_size; i++)
     {
         struct process *process = parse_process(processes[i]);
-        if (process == NULL)
+        if (process == ERROR_PROCESS)
         {
             destroy_job(job);
             return PR_SYNTAX_ERROR;
         }
+        if (process == EMPTY_PROCESS)
+        {
+            destroy_job(job);
+            return PR_OK;
+        }
 
         process_add_last(&(job->pipeline), process);
     }
+
+    job->pipeline_size = pipeline_size;
 
     //print_job(job);
 
@@ -369,6 +379,7 @@ enum parse_result interpret_line(const char * const line)
             perror("tty");
             exit(1);
         }
+        tcflush(current_terminal, TCIFLUSH);
     }
 
     return PR_OK;
@@ -480,11 +491,7 @@ int read_error(const int fd, int * const err, char * const buff, size_t buffsize
         ret += read(fd, buff, buffsize);
         if (ret >= 0)
         {
-            buff[ret] = '\0';
-            return ret;
-        }
-        if (ret == -1 && errno != EINTR)
-        {
+            buff[ret - sizeof(*err)] = '\0';
             return ret;
         }
     }
@@ -510,7 +517,7 @@ int start_job(struct job *job)
     if (job == NULL)
         return -1;
     int control_pipe[2] = { -1, -1 };
-    if (create_pipe(control_pipe, true) == -1)
+    if (create_pipe(control_pipe, /*close-on-exec*/true) == -1)
     {
         return -1;
     }
@@ -532,29 +539,27 @@ int start_job(struct job *job)
             last = true;
         if (!last)
         {
-            if (create_pipe(pipefds, true) == -1)
+            if (create_pipe(pipefds, /*close-on-exec*/true) == -1)
             {
                 goto error_label;
             }
         }
-        if (create_pipe(error_pipe, true) == -1)
+        if (create_pipe(error_pipe, /*close-on-exec*/true) == -1)
         {
             goto error_label;
         }
-        pid_t thispid;
         switch (pid = fork())
         {
         case -1:
             goto error_label;
         case 0:
             //child
-            thispid = getpid();
             reset_job_control_handlers();
             sigprocmask(SIG_SETMASK, &default_mask, NULL);
             errno = 0;
             if (link_pipes(prevfd, last ? STDOUT_FILENO : pipefds[1]) == -1 || do_redirects(current_process->redirects) == -1)
             {
-                write_error(error_pipe[1], "pipe or redirect", true);
+                write_error(error_pipe[1], "pipe or redirect", /*fatal*/true);
             }
             close_pipe(&prevfd, 1);
             if (!last)
@@ -570,14 +575,14 @@ int start_job(struct job *job)
                     errno = 0;
                     if (get_terminal(current_terminal, getpgrp()) == -1)
                     {
-                        write_error(error_pipe[1], "couldn't get terminal", true);
+                        write_error(error_pipe[1], "couldn't get terminal", /*fatal*/true);
                     }
                 }
 
                 char c;
                 if (close_pipe(control_pipe, 2) == -1)
                 {
-                    write_error(error_pipe[1], "pipe", true);
+                    write_error(error_pipe[1], "pipe", /*fatal*/true);
                 }
                 //printf("reading control\n");
                 while (read(control_pipe[0], &c, 1) == -1 && errno == EINTR) {}
@@ -590,8 +595,7 @@ int start_job(struct job *job)
                 close(control_pipe[0]);
             }
             execvp(current_process->arguments[0], current_process->arguments);
-            write(error_pipe[1], "exec", 4);
-            _exit(1);
+            write_error(error_pipe[1], current_process->arguments[0], /*fatal*/true);
             break;
         default:
             close_pipe(&prevfd, 1);
@@ -624,25 +628,73 @@ int start_job(struct job *job)
     }
 
     close_pipe(control_pipe, 3);
+    close_pipe(pipefds, 3);
     if (read_error(first_error_pipe_read, &child_errno, error_buff, 128) != 0)
         goto error_label;
-
-    job_add_first(&current_job, job);
+    close_pipe(error_pipe, 3);
 
     if (job->fg)
     {
         int status;
-        while (waitpid(-job->pgid, &status, 0) > 0) {}
+        bool falling_apart = false;
+        bool stopped = false;
+        size_t stopped_process_count = 0;
+        while (waitpid(-job->pgid, &status, WUNTRACED) > 0)
+        {
+            if (WIFEXITED(status) || WIFSIGNALED(status))
+            {
+                falling_apart = true;
+                if (stopped)
+                {
+                    killpg(job->pgid, SIGTERM);
+                    killpg(job->pgid, SIGCONT);
+                    stopped_process_count = 0;
+                }
+            }
+            else if (WIFSTOPPED(status))
+            {
+                stopped = true;
+                if (falling_apart)
+                {
+                    killpg(job->pgid, SIGTERM);
+                    killpg(job->pgid, SIGCONT);
+                    stopped_process_count = 0;
+                }
+                else
+                {
+                    stopped_process_count++;
+                }
+            }
+
+            if (stopped_process_count == job->pipeline_size)
+            {
+                job->fg = false;
+                job_add_first(&current_job, job);
+                break;
+            }
+        }
+    }
+    else
+    {
+        job_add_first(&current_job, job);
+        job_add_last(&pending_jobs, job);
+        //pending_jobs++;
     }
 
     return 0;
 
 error_label:;
     //TODO: cleanup
-
-    int olderr = errno;
-    perror(error_buff);
-    errno = olderr;
+    close_pipe(control_pipe, 3);
+    close_pipe(pipefds, 3);
+    close_pipe(error_pipe, 3);
+    if (child_errno != 0)
+    {
+        int olderr = errno;
+        errno = child_errno;
+        perror(error_buff);
+        errno = olderr;
+    }
     //printf("ERROR: %s\n", error_buff);
     return -1;
 }
@@ -721,7 +773,7 @@ int execute(const char * const command, char * const * const arguments, bool bg)
         new_job->pgid = child_pid;
         new_job->fg = false;
         job_add_first(&current_job, new_job);
-        pending_jobs++;
+        //pending_jobs++;
     }
 
     return 0;

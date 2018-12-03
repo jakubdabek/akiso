@@ -1,8 +1,8 @@
 #pragma once
 
+#include <sys/types.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <sys/types.h>
 
 #define BUFF_SIZE 512
 #define MAX_ARGS 20

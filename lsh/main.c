@@ -4,32 +4,29 @@
 
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <signal.h>
-#include <stdio.h>
-#include <errno.h>
 #include <termios.h>
+#include <signal.h>
 #include <string.h>
 #include <stdlib.h>
-#include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
 
 
 bool print_jobs()
 {
-    struct job *ptr = current_job;
+    struct job *ptr;
     bool printed = false;
-    while (pending_jobs > 0)
+    while ((ptr = remove_job(&current_job, 0)) != NULL)
     {
-        printf("[new job: %d]\n", ptr->pgid);
-        pending_jobs--;
-        ptr = ptr->next;
+        printf("[new job: %ld]\n", (long)ptr->pgid);
         printed = true;
     }
-    while (pending_removed_jobs != NULL)
+    while ((ptr = remove_job(&pending_removed_jobs, 0)) != NULL)
     {
-        struct job *tmp = remove_job(&pending_removed_jobs, 0);
-        printf("[job ended: %d]\n", tmp->pgid);
-        free(tmp);
+        printf("[job ended: %ld]\n", (long)ptr->pgid);
+        free(ptr);
         printed = true;
     }
 
@@ -43,12 +40,6 @@ void print_prompt()
     printf("%s$ ", getcwd(buff, BUFF_SIZE));
     fflush(stdout);
 }
-
-void handle_tstp(int _)
-{
-    // TODO: stop foreground job
-}
-
 
 void handle_chld(int _, siginfo_t *info, void* __)
 {
@@ -132,8 +123,8 @@ void prepare_handlers()
         struct sigaction act;
         sigemptyset(&act.sa_mask);
         act.sa_flags = SA_RESTART | SA_SIGINFO;
-        //act.sa_sigaction = handle_chld;
-        act.sa_handler = SIG_DFL;
+        act.sa_sigaction = handle_chld;
+        //act.sa_handler = SIG_DFL;
         int ret = sigaction(SIGCHLD, &act, NULL);
         if (ret == -1)
         {
@@ -160,9 +151,9 @@ void prepare_handlers()
 char** parse_tokens(const char *command, size_t *argc, const char *delimeters, bool allow_empty);
 
 int current_terminal;
-
 struct termios terminal_config;
-// find / 2> /dev/null | wc -l & 
+
+// find / 2>/dev/null | wc -l & 
 // cat aa 2>&1 >file.txt| grep -v wow\ 123 | xd >/dev/null
 void start()
 {
@@ -172,6 +163,7 @@ void start()
         exit(1);
     }
     current_terminal = copy_to_high_fd(STDIN_FILENO, 250);
+    fcntl(current_terminal, F_SETFD, FD_CLOEXEC);
     prepare_handlers();
     tcgetattr(current_terminal, &terminal_config);
 
@@ -225,8 +217,9 @@ void cleanup()
     while (ptr != NULL)
     {
         printf("killing %d\n", ptr->pgid);
-        if (kill(-ptr->pgid, SIGHUP) != -1)
+        if (killpg(ptr->pgid, SIGHUP) != -1)
         {
+            killpg(ptr->pgid, SIGCONT);
             remove_job(&current_job, ptr->pgid);
         }
         ptr = ptr->next;

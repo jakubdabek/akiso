@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 struct job *current_job = NULL;
-int pending_jobs = 0;
+struct job *pending_jobs = NULL;
 struct job *pending_removed_jobs = NULL;
 
 
@@ -26,6 +26,9 @@ struct job *pending_removed_jobs = NULL;
 
 struct job* remove_job(struct job **ptr, pid_t pid)
 {
+    if (ptr == NULL)
+        return NULL;
+
     while (*ptr != NULL)
     {
         if ((*ptr)->pgid == pid || pid <= 0)
