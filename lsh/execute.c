@@ -47,30 +47,19 @@ static int do_redirects(struct redirect *redirect)
 {
     while (redirect != NULL)
     {
-        if (redirect->is_out)
+        if (redirect->right_fd == -1)
         {
-            if (redirect->to_fd == -1)
-            {
-                redirect->to_fd = open(redirect->to, O_WRONLY | O_CREAT);
-                if (redirect->to_fd == -1)
-                    return -1;
-            }
-            if (dup2(redirect->to_fd, redirect->from_fd) == -1)
+            if (redirect->is_out)
+                redirect->right_fd = open(redirect->right, O_WRONLY | O_CREAT);
+            else
+                redirect->right_fd = open(redirect->right, O_RDONLY);
+
+            if (redirect->right_fd == -1)
                 return -1;
-            close(redirect->to_fd);
         }
-        else
-        {
-            if (redirect->from_fd == -1)
-            {
-                redirect->from_fd = open(redirect->from, O_RDONLY);
-                if (redirect->from_fd == -1)
-                    return -1;
-            }
-            if (dup2(redirect->from_fd, redirect->to_fd) == -1)
-                return -1;
-            close(redirect->from_fd);
-        }
+        if (dup2(redirect->right_fd, redirect->left_fd) == -1)
+            return -1;
+        close(redirect->right_fd);
 
         redirect = redirect->next;
     }
@@ -93,14 +82,14 @@ static int link_pipes(int in_fd, int out_fd)
 static int close_pipe(int fds[2], int which)
 {
     int ret = 0;
-    if (which & 1 && fds[0] > 0)
+    if ((which & 1) && fds[0] > 0)
     {
         if (close(fds[0]) == -1)
             ret = -1;
         else
             fds[0] = -1;
     }
-    if (which & 2 && fds[1] > 0)
+    if ((which & 2) && fds[1] > 0)
     {
         if (close(fds[1]) == -1)
             ret = -1;
@@ -115,15 +104,30 @@ static int create_pipe(int fds[2], bool close_on_exec)
 {
     if (pipe(fds) == -1)
         return -1;
-    if (close_on_exec &&
-        (fcntl(fds[0], F_SETFD, FD_CLOEXEC) == -1 ||
-         fcntl(fds[1], F_SETFD, FD_CLOEXEC) == -1))
+
+    if (close_on_exec)
     {
-        close_pipe(fds, 3);
-        return -1;
+        int flags0 = fcntl(fds[0], F_GETFD);
+        if (flags0 == -1)
+            goto ret_error;
+        int flags1 = fcntl(fds[1], F_GETFD);
+        if (flags1 == -1)
+            goto ret_error;
+        
+        flags0 |= FD_CLOEXEC;
+        flags1 |= FD_CLOEXEC;
+
+        if (fcntl(fds[0], F_SETFD, flags0) == -1)
+            goto ret_error;
+        if (fcntl(fds[1], F_SETFD, flags1) == -1)
+            goto ret_error;
     }
 
     return 0;
+
+ret_error:;
+    close_pipe(fds, 3);
+    return -1;
 }
 
 static int read_error(const int fd, int * const err, char * const buff, size_t buffsize)
@@ -152,26 +156,6 @@ static int write_error(const int fd, const char * const message, bool fatal)
     if (fatal)
         _exit(1);
     
-    return ret;
-}
-
-static int start_job_internal(struct job *job);
-
-int start_job(struct job *job)
-{
-    int ret = start_job_internal(job);
-    if (get_terminal(current_terminal, getpgrp()) == -1)
-    {
-        perror("tty");
-        longjmp(env, 1);
-    }
-    if (tcsetattr(current_terminal, TCSADRAIN, &terminal_config) == -1)
-    {
-        perror("tty");
-        longjmp(env, 1);
-    }
-    tcflush(current_terminal, TCIFLUSH);
-
     return ret;
 }
 
@@ -207,14 +191,11 @@ static int start_job_internal(struct job *job)
         if (!last)
         {
             if (create_pipe(pipefds, /*close-on-exec*/true) == -1)
-            {
                 goto error_label;
-            }
         }
         if (create_pipe(error_pipe, /*close-on-exec*/true) == -1)
-        {
             goto error_label;
-        }
+
         switch (pid = fork())
         {
         case -1:
@@ -265,6 +246,7 @@ static int start_job_internal(struct job *job)
             write_error(error_pipe[1], current_process->arguments[0], /*fatal*/true);
             break;
         default:
+            //parent
             close_pipe(&prevfd, 1);
             if (!last)
             {
@@ -284,6 +266,7 @@ static int start_job_internal(struct job *job)
                 {
                     goto error_label;
                 }
+                close_pipe(error_pipe, 1);
             }
             else
             {
@@ -298,6 +281,7 @@ static int start_job_internal(struct job *job)
     close_pipe(pipefds, 3);
     if (read_error(first_error_pipe_read, &child_errno, error_buff, 128) != 0)
         goto error_label;
+    close_pipe(&first_error_pipe_read, 1);
     close_pipe(error_pipe, 3);
 
     if (job->fg)
@@ -352,6 +336,11 @@ static int start_job_internal(struct job *job)
 
 error_label:;
     //TODO: cleanup
+    if (job->pgid > 0)
+    {
+        killpg(job->pgid, SIGTERM);
+        killpg(job->pgid, SIGCONT);
+    }
     close_pipe(control_pipe, 3);
     close_pipe(pipefds, 3);
     close_pipe(error_pipe, 3);
@@ -363,6 +352,24 @@ error_label:;
         errno = olderr;
     }
     return -1;
+}
+
+int start_job(struct job *job)
+{
+    int ret = start_job_internal(job);
+    if (get_terminal(current_terminal, getpgrp()) == -1)
+    {
+        perror("tty");
+        longjmp(env, 1);
+    }
+    if (tcsetattr(current_terminal, TCSADRAIN, &terminal_config) == -1)
+    {
+        perror("tty");
+        longjmp(env, 1);
+    }
+    tcflush(current_terminal, TCIFLUSH);
+
+    return ret;
 }
 
 

@@ -6,10 +6,10 @@
 struct redirect
 {
     bool is_out;
-    const char *to;
-    int to_fd;
-    const char *from;
-    int from_fd;
+    const char *left;
+    int left_fd;
+    const char *right;
+    int right_fd;
     struct redirect *next;
 };
 

@@ -59,8 +59,8 @@ void destroy_redirect(struct redirect * const redirect)
     if (redirect == NULL)
         return;
     
-    free((void*)redirect->from);
-    free((void*)redirect->to);
+    free((void*)redirect->left);
+    free((void*)redirect->right);
     destroy_redirect(redirect->next);
     free(redirect);
 }

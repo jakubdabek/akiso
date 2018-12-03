@@ -126,51 +126,33 @@ char** parse_tokens(const char * const command, size_t * const argc, const char 
 
 bool check_redirect(struct redirect * const redirect)
 {
-    const char *proc;
-    const char *other;
-    int *proc_fd;
-    int *other_fd;
-    if (redirect->is_out)
-    {
-        proc = redirect->from;
-        proc_fd = &redirect->from_fd;
-        other = redirect->to;
-        other_fd = &redirect->to_fd;
-    }
-    else
-    {
-        proc = redirect->to;
-        proc_fd = &redirect->to_fd;
-        other = redirect->from;
-        other_fd = &redirect->from_fd;
-    }
     char *ptr;
-    if (proc[0] == '\0')
+    if (redirect->left[0] == '\0')
     {
-        *proc_fd = redirect->is_out ? 1 : 0;
+        redirect->left_fd = redirect->is_out ? 1 : 0;
     }
     else
     {
-        *proc_fd = strtol(proc, &ptr, 10);
+        redirect->left_fd = strtol(redirect->left, &ptr, 10);
         if (*ptr != '\0')
             return false;
     }
 
-    if (other[0] == '\0')
+    if (redirect->right[0] == '\0')
         return false;
     
-    if (other[0] == '&')
+    if (redirect->right[0] == '&')
     {
-        if (other[1] == '\0')
+        if (redirect->right[1] == '\0')
             return false;
 
-        *other_fd = strtol(other + 1, &ptr, 10);
+        redirect->right_fd = strtol(redirect->right + 1, &ptr, 10);
         if (*ptr != '\0')
             return false;
     }
     else
     {
-        *other_fd = -1;
+        redirect->right_fd = -1;
     }
 
     return true;
@@ -187,8 +169,10 @@ struct redirect* parse_redirect(const char * const str, bool is_out)
     }
 
     struct redirect *redirect = malloc(sizeof(*redirect));
-    redirect->from = strdup(redirect_sides[is_out ? 0 : 1]);
-    redirect->to = strdup(redirect_sides[is_out ? 1 : 0]);
+    redirect->left = strdup(redirect_sides[0]);
+    redirect->left_fd = -1;
+    redirect->right = strdup(redirect_sides[1]);
+    redirect->right_fd = -1;
     redirect->is_out = is_out;
     redirect->next = NULL;
 
