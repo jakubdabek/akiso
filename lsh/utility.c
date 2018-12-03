@@ -15,12 +15,15 @@ void flush(void)
     while ((c = getchar()) != '\n' && c != EOF) {}
 }
 
-char* read_line(char * const buffer, const size_t size)
+char* read_line_internal(char * const buffer, const size_t size, volatile bool * const canceler)
 {
+    
     char *ptr = buffer;
     size_t bytes_read = 0;
     while (true)
     {
+        if (canceler != NULL && *canceler)
+            return NULL;
         int ret = read(STDIN_FILENO, ptr, size - bytes_read);
         if (ret == -1)
         {
@@ -53,10 +56,19 @@ char* read_line(char * const buffer, const size_t size)
     return buffer;
 }
 
+char* read_line(char * const buffer, const size_t size, volatile bool * const canceler)
+{
+    set_signal_mask(SIGINT, false);
+    char *ret = read_line_internal(buffer, size, canceler);
+    set_signal_mask(SIGINT, true);
+
+    return ret;
+}
+
 int read_int(int * const value)
 {
     char buffer[100];
-    if(!read_line(buffer, 100)) 
+    if(!read_line(buffer, 100, NULL))
         return 0;
     int success = sscanf(buffer, "%d", value);
 
@@ -154,4 +166,16 @@ int set_signal_handler(int signal, void (*callback)(int))
     act.sa_flags = SA_RESTART;
     act.sa_handler = callback;
     return sigaction(signal, &act, NULL);
+}
+
+void set_signal_mask(int signum, bool on)
+{
+    sigset_t mask;
+    sigprocmask(SIG_BLOCK, NULL, &mask);
+    if (on)
+        sigaddset(&mask, signum);
+    else
+        sigdelset(&mask, signum);
+    
+    sigprocmask(SIG_SETMASK, &mask, NULL);
 }

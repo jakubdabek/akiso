@@ -286,44 +286,7 @@ static int start_job_internal(struct job *job)
 
     if (job->fg)
     {
-        int status;
-        bool falling_apart = false;
-        bool stopped = false;
-        size_t stopped_process_count = 0;
-        while (waitpid(-job->pgid, &status, WUNTRACED) > 0)
-        {
-            if (WIFEXITED(status) || WIFSIGNALED(status))
-            {
-                falling_apart = true;
-                if (stopped)
-                {
-                    killpg(job->pgid, SIGTERM);
-                    killpg(job->pgid, SIGCONT);
-                    stopped_process_count = 0;
-                }
-            }
-            else if (WIFSTOPPED(status))
-            {
-                stopped = true;
-                if (falling_apart)
-                {
-                    killpg(job->pgid, SIGTERM);
-                    killpg(job->pgid, SIGCONT);
-                    stopped_process_count = 0;
-                }
-                else
-                {
-                    stopped_process_count++;
-                }
-            }
-
-            if (stopped_process_count == job->pipeline_size)
-            {
-                job->fg = false;
-                job_add_first(&current_job, job);
-                break;
-            }
-        }
+        wait_for_fg_job(job);
     }
     else
     {
@@ -352,6 +315,50 @@ error_label:;
         errno = olderr;
     }
     return -1;
+}
+
+int wait_for_fg_job(struct job *job)
+{
+    int status;
+    bool falling_apart = false;
+    bool stopped = false;
+    size_t stopped_process_count = 0;
+    while (waitpid(-job->pgid, &status, WUNTRACED) > 0)
+    {
+        if (WIFEXITED(status) || WIFSIGNALED(status))
+        {
+            falling_apart = true;
+            if (stopped)
+            {
+                killpg(job->pgid, SIGTERM);
+                killpg(job->pgid, SIGCONT);
+                stopped_process_count = 0;
+            }
+        }
+        else if (WIFSTOPPED(status))
+        {
+            stopped = true;
+            if (falling_apart)
+            {
+                killpg(job->pgid, SIGTERM);
+                killpg(job->pgid, SIGCONT);
+                stopped_process_count = 0;
+            }
+            else
+            {
+                stopped_process_count++;
+            }
+        }
+
+        if (stopped_process_count == job->pipeline_size)
+        {
+            job->fg = false;
+            job_add_first(&current_job, job);
+            break;
+        }
+    }
+
+    return 0;
 }
 
 int start_job(struct job *job)

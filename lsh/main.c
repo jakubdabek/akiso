@@ -1,5 +1,6 @@
 #include "utility.h"
 #include "parser.h"
+#include "execute.h"
 #include "job.h"
 
 #include <sys/types.h>
@@ -15,6 +16,11 @@
 #include <stdio.h>
 
 jmp_buf env;
+int current_terminal;
+struct termios terminal_config;
+bool sigint_received = false;
+sigset_t default_mask;
+
 
 bool print_jobs()
 {
@@ -37,6 +43,11 @@ bool print_jobs()
 
 void print_prompt()
 {
+    if (sigint_received)
+    {
+        sigint_received = false;
+        printf("\n");
+    }
     print_jobs();
     char buff[BUFF_SIZE];
     printf("%s$ ", getcwd(buff, BUFF_SIZE));
@@ -79,14 +90,16 @@ void handle_chld(int _, siginfo_t *info, void* __)
 
 void handle_int(int this)
 {
-    if (current_job != NULL && current_job->fg)
-    {
-        killpg(current_job->pgid, this);
-        killpg(current_job->pgid, SIGCONT);
-    }
-    printf("\n");
-    print_prompt();
-    fflush(stdout);
+    // if (current_job != NULL && current_job->fg)
+    // {
+    //     killpg(current_job->pgid, this);
+    //     killpg(current_job->pgid, SIGCONT);
+    // }
+    // printf("\n");
+    // print_prompt();
+    // fflush(stdout);
+    sigint_received = true;
+    tcflush(current_terminal, TCIFLUSH);
 }
 
 int copy_to_high_fd(int fd, int maxfd)
@@ -107,8 +120,6 @@ int copy_to_high_fd(int fd, int maxfd)
     return newfd;
 }
 
-sigset_t default_mask;
-
 void prepare_handlers()
 {
     sigemptyset(&default_mask);
@@ -120,6 +131,7 @@ void prepare_handlers()
     signal(SIGTTOU, SIG_IGN);
     signal(SIGTTIN, SIG_IGN);
 
+    set_signal_mask(SIGINT, true);
     //SIGCHLD
     {
         struct sigaction act;
@@ -139,7 +151,8 @@ void prepare_handlers()
     {
         struct sigaction act;
         sigemptyset(&act.sa_mask);
-        act.sa_flags = SA_RESTART;
+        //act.sa_flags = SA_RESTART;
+        act.sa_flags = 0;
         act.sa_handler = handle_int;
         int ret = sigaction(SIGINT, &act, NULL);
         if (ret == -1)
@@ -151,9 +164,6 @@ void prepare_handlers()
 }
 
 char** parse_tokens(const char *command, size_t *argc, const char *delimeters, bool allow_empty);
-
-int current_terminal;
-struct termios terminal_config;
 
 // find / 2>/dev/null | wc -l & 
 // cat aa 2>&1 >file.txt| grep -v wow\ 123 | xd >/dev/null
@@ -173,8 +183,13 @@ void start()
     while (true)
     {
         print_prompt();
-        if (read_line(buff, BUFF_SIZE) == NULL)
-            break;
+        if (read_line(buff, BUFF_SIZE, &sigint_received) == NULL)
+        {
+            if (sigint_received)
+                continue;
+            else
+                break;
+        }
 
         // printf("%s\n", buff);
         // size_t piped_num;
