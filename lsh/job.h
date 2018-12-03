@@ -34,6 +34,7 @@ struct job
 #include "utility.h"
 
 static inline LINKED_LIST_ADD_FIRST(job)
+static inline LINKED_LIST_ADD_LAST(job)
 
 struct job* remove_job(struct job **ptr, pid_t pid);
 void empty_job(struct job *job);
