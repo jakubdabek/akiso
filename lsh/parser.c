@@ -124,7 +124,7 @@ char** parse_tokens(const char * const command, size_t * const argc, const char 
     return arguments;
 }
 
-bool check_redirect(struct redirect * const redirect)
+static bool check_redirect(struct redirect * const redirect)
 {
     char *ptr;
     if (redirect->left[0] == '\0')
@@ -158,7 +158,7 @@ bool check_redirect(struct redirect * const redirect)
     return true;
 }
 
-struct redirect* parse_redirect(const char * const str, bool is_out)
+static struct redirect* parse_redirect(const char * const str, bool is_out)
 {
     size_t side_count;
     char **redirect_sides = parse_tokens(str, &side_count, is_out ? ">" : "<", true);
@@ -168,7 +168,7 @@ struct redirect* parse_redirect(const char * const str, bool is_out)
         return NULL;
     }
 
-    struct redirect *redirect = malloc(sizeof(*redirect));
+    struct redirect *redirect = (struct redirect*)malloc(sizeof(*redirect));
     redirect->left = strdup(redirect_sides[0]);
     redirect->left_fd = -1;
     redirect->right = strdup(redirect_sides[1]);
@@ -189,7 +189,33 @@ struct redirect* parse_redirect(const char * const str, bool is_out)
 #define EMPTY_PROCESS ((struct process*)0)
 #define ERROR_PROCESS ((struct process*)1)
 
-struct process* parse_process(const char * const command)
+static const char * const builtins[] = 
+{
+    "cd",
+    "jobs",
+    "fg",
+    "bg",
+    "exit"
+};
+
+enum parse_result do_cd(const char * const *args, int argc);
+enum parse_result do_jobs(const char * const *args, int argc);
+enum parse_result do_fg(const char * const *args, int argc);
+enum parse_result do_bg(const char * const *args, int argc);
+enum parse_result do_exit(const char * const *args, int argc);
+
+typedef enum parse_result (*builtin_command)(const char * const *args, int argc);
+
+static const builtin_command builtin_commands[] =
+{
+    do_cd,
+    do_jobs,
+    do_fg,
+    do_bg,
+    do_exit
+};
+
+static struct process* parse_process(const char * const command)
 {
     size_t argc;
     char **tokens = parse_tokens(command, &argc, whitespace, false);
@@ -198,7 +224,7 @@ struct process* parse_process(const char * const command)
         free(tokens);
         return EMPTY_PROCESS;
     }
-    struct process *process = malloc(sizeof(*process));
+    struct process *process = (struct process*)malloc(sizeof(*process));
     empty_process(process);
 
     bool redirect_found = false;
@@ -275,7 +301,7 @@ enum parse_result interpret_line(const char * const line)
             return PR_OK;
     }
 
-    struct job *job = malloc(sizeof(*job));
+    struct job *job = (struct job*)malloc(sizeof(*job));
     empty_job(job);
     job->fg = !bg;
     for (size_t i = 0; i < pipeline_size; i++)
@@ -299,46 +325,69 @@ enum parse_result interpret_line(const char * const line)
 
     //print_job(job);
 
-    if (strcmp(job->pipeline->arguments[0], "exit") == 0)
+    for (int i = 0; i < sizeof(builtins) / sizeof(*builtins); i++)
     {
-        destroy_job(job);
-        return PR_EXIT;
-    }
-    if (strcmp(job->pipeline->arguments[0], "cd") == 0)
-    {
-        if (job->pipeline->next != NULL)
+        if (strcmp(job->pipeline->arguments[0], builtins[i]) == 0)
         {
-            destroy_job(job);
-            return PR_SYNTAX_ERROR;
-        }
-
-        if (job->pipeline->argc > 2)
-        {
-            destroy_job(job);
-            return PR_SYNTAX_ERROR;
-        }
-        else if (job->pipeline->argc == 1)
-        {
-            int ret = chdir(getenv("HOME"));
-            if (ret == -1)
-            {
-                return PR_ERROR_ERRNO;
-            }
-        }
-        else
-        {
-            int ret = chdir(job->pipeline->arguments[1]);
-            if (ret == -1)
+            if (job->pipeline->next != NULL)
             {
                 destroy_job(job);
-                return PR_ERROR_ERRNO;
+                return PR_SYNTAX_ERROR;
             }
+            enum parse_result ret = builtin_commands[i]((const char * const *)job->pipeline->arguments, job->pipeline->argc);
+            destroy_job(job);
+            return ret;
+        }
+    }
+
+    start_job(job);
+
+    return PR_OK;
+}
+
+enum parse_result do_cd(const char * const * const args, const int argc)
+{
+    if (argc > 2)
+    {
+        return PR_SYNTAX_ERROR;
+    }
+    else if (argc == 1)
+    {
+        int ret = chdir(getenv("HOME"));
+        if (ret == -1)
+        {
+            return PR_ERROR_ERRNO;
         }
     }
     else
     {
-        start_job(job);
+        int ret = chdir(args[1]);
+        if (ret == -1)
+        {
+            return PR_ERROR_ERRNO;
+        }
     }
 
     return PR_OK;
+}
+
+enum parse_result do_jobs(const char * const * const args, const int argc)
+{
+    printf("jobs\n");
+    return PR_OK;
+}
+
+enum parse_result do_fg(const char * const * const args, const int argc)
+{
+    printf("fg\n");
+    return PR_OK;
+}
+enum parse_result do_bg(const char * const * const args, const int argc)
+{
+    printf("bg\n");
+    return PR_OK;
+}
+enum parse_result do_exit(const char * const * const args, const int argc) 
+{
+    return PR_EXIT;
 }

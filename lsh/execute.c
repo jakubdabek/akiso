@@ -50,7 +50,7 @@ static int do_redirects(struct redirect *redirect)
         if (redirect->right_fd == -1)
         {
             if (redirect->is_out)
-                redirect->right_fd = open(redirect->right, O_WRONLY | O_CREAT);
+                redirect->right_fd = open(redirect->right, O_WRONLY | O_CREAT, 0766);
             else
                 redirect->right_fd = open(redirect->right, O_RDONLY);
 
@@ -431,7 +431,7 @@ int execute(const char * const command, char * const * const arguments, bool bg)
         int status;
         setpgid(child_pid, 0);
         tcsetpgrp(current_terminal, getpgid(child_pid));
-        struct job *new_job = malloc(sizeof(*current_job));
+        struct job *new_job = (struct job*)malloc(sizeof(*current_job));
         new_job->pgid = child_pid;
         new_job->fg = false;
         job_add_first(&current_job, new_job);
@@ -451,7 +451,7 @@ int execute(const char * const command, char * const * const arguments, bool bg)
     }
     else
     {
-        struct job *new_job = malloc(sizeof(*current_job));
+        struct job *new_job = (struct job*)malloc(sizeof(*current_job));
         new_job->pgid = child_pid;
         new_job->fg = false;
         job_add_first(&current_job, new_job);

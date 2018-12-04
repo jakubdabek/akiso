@@ -14,8 +14,6 @@ job.o: job.c job.h
 
 execute.o: execute.c execute.h
 
-execute.h: job.h
-
 clean:
 	$(RM) *.o main
 .PHONY: all clean

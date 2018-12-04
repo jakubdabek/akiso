@@ -22,23 +22,35 @@ bool sigint_received = false;
 sigset_t default_mask;
 
 
-bool print_jobs()
+bool print_pending_jobs()
 {
     struct job *ptr;
     bool printed = false;
-    while ((ptr = remove_job(&current_job, 0)) != NULL)
+    while ((ptr = remove_job(&pending_jobs, 0)) != NULL)
     {
-        printf("[new job: %ld]\n", (long)ptr->pgid);
+        if (ptr->stopped)
+            printf("job: %8ld (Stopped)\n", (long)ptr->pgid);
+        else
+            printf("job: %8ld (Running)\n", (long)ptr->pgid);
         printed = true;
     }
     while ((ptr = remove_job(&pending_removed_jobs, 0)) != NULL)
     {
-        printf("[job ended: %ld]\n", (long)ptr->pgid);
+        printf("job: %8ld (Done)\n", (long)ptr->pgid);
         free(ptr);
         printed = true;
     }
 
     return printed;
+}
+
+void print_jobs()
+{
+    struct job *ptr = current_job;
+    while (ptr != NULL)
+    {
+
+    }
 }
 
 void print_prompt()
@@ -48,7 +60,7 @@ void print_prompt()
         sigint_received = false;
         printf("\n");
     }
-    print_jobs();
+    print_pending_jobs();
     char buff[BUFF_SIZE];
     printf("%s$ ", getcwd(buff, BUFF_SIZE));
     fflush(stdout);
@@ -59,24 +71,41 @@ void handle_chld(int _, siginfo_t *info, void* __)
     pid_t pid;
     int status;
 
-    struct job *ptr = current_job;
-    while (ptr != NULL)
+    struct job *job = current_job;
+    while (job != NULL)
     {
-        pid_t pgid = ptr->pgid;
-        do
+        while (true)
         {
-            pid = waitpid(-pgid, &status, WNOHANG);
+            pid = waitpid(-job->pgid, &status, WNOHANG | WUNTRACED);
+            if (pid > 0)
+            {
+                if (WIFEXITED(status) || WIFSIGNALED(status))
+                {
+                    job->pipeline_size--;
+                    job->falling_apart = true;
+                    killpg(job->pgid, SIGCONT);
+                }
+                else if (WIFSTOPPED(status))
+                {
+                    killpg(job->pgid, SIGSTOP);
+                }
+            }
+            else
+            {
+                break;
+            }
         }
-        while (pid > 0);
 
-        ptr = ptr->next;
+        pid_t pgid = job->pgid;
+        int pipeline_size = job->pipeline_size;
+        job = job->next;
 
-        if (kill(-pgid, 0) == -1)
+        if (pipeline_size == 0)
         {
             struct job *removed = remove_job(&current_job, pgid);
             if (removed != NULL)
             {
-                job_add_first(&pending_removed_jobs, removed);
+                job_add_last(&pending_removed_jobs, removed);
             }
         }
     }
@@ -88,7 +117,7 @@ void handle_chld(int _, siginfo_t *info, void* __)
     }
 }
 
-void handle_int(int this)
+void handle_int(int signum)
 {
     // if (current_job != NULL && current_job->fg)
     // {
@@ -136,6 +165,7 @@ void prepare_handlers()
     {
         struct sigaction act;
         sigemptyset(&act.sa_mask);
+        sigaddset(&act.sa_mask, SIGINT);
         act.sa_flags = SA_RESTART | SA_SIGINFO;
         act.sa_sigaction = handle_chld;
         //act.sa_handler = SIG_DFL;
@@ -162,8 +192,6 @@ void prepare_handlers()
         }
     }
 }
-
-char** parse_tokens(const char *command, size_t *argc, const char *delimeters, bool allow_empty);
 
 // find / 2>/dev/null | wc -l & 
 // cat aa 2>&1 >file.txt| grep -v wow\ 123 | xd >/dev/null
@@ -249,7 +277,7 @@ void cleanup()
         printf("wait for %d complete\n", pid);
     }
 
-    if (!print_jobs())
+    if (!print_pending_jobs())
     {
         printf("\n");
     }

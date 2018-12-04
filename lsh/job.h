@@ -26,6 +26,8 @@ struct job
 {
     pid_t pgid;
     bool fg;
+    bool stopped;
+    bool falling_apart;
     struct process *pipeline;
     size_t pipeline_size;
     struct job *next;
