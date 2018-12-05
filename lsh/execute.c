@@ -1,4 +1,5 @@
 #include "execute.h"
+#include "parser.h"
 
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -20,6 +21,26 @@ extern sigset_t default_mask;
 extern struct termios terminal_config;
 extern jmp_buf env;
 
+const char * const builtins[] = 
+{
+    "cd",
+    "jobs",
+    "fg",
+    "bg",
+    "exit"
+};
+
+const builtin_command builtin_commands[] =
+{
+    do_cd,
+    do_jobs,
+    do_fg,
+    do_bg,
+    do_exit
+};
+
+size_t builtins_count = sizeof(builtins) / sizeof(*builtins);
+
 static int get_terminal(int tty, pid_t pid)
 {
     sigset_t set, oldset;
@@ -27,7 +48,7 @@ static int get_terminal(int tty, pid_t pid)
     sigaddset(&set, SIGTTOU);
     sigemptyset(&oldset);
     sigprocmask(SIG_BLOCK, &set, &oldset);
-    int ret = tcsetpgrp(current_terminal, getpid());
+    int ret = tcsetpgrp(current_terminal, pid);
     sigprocmask(SIG_SETMASK, &oldset, NULL);
 
     return ret;
@@ -284,17 +305,6 @@ static int start_job_internal(struct job *job)
     close_pipe(&first_error_pipe_read, 1);
     close_pipe(error_pipe, 3);
 
-    if (job->fg)
-    {
-        wait_for_fg_job(job);
-    }
-    else
-    {
-        job_add_first(&current_job, job);
-        job_add_last(&pending_jobs, job);
-        //pending_jobs++;
-    }
-
     return 0;
 
 error_label:;
@@ -317,8 +327,9 @@ error_label:;
     return -1;
 }
 
-int wait_for_fg_job(struct job *job)
+static int wait_for_fg_job(struct job *job)
 {
+    set_signal_mask(SIGCHLD, true);
     int status;
     bool falling_apart = false;
     bool stopped = false;
@@ -353,17 +364,30 @@ int wait_for_fg_job(struct job *job)
         if (stopped_process_count == job->pipeline_size)
         {
             job->fg = false;
-            job_add_first(&current_job, job);
+            job->stopped = true;
+            job_handle_add_first(&current_job, make_job_handle(job));
+            job_handle_add_last(&pending_jobs, make_job_handle(job));
             break;
         }
     }
+    set_signal_mask(SIGCHLD, false);
 
     return 0;
 }
 
-int start_job(struct job *job)
+static int launch_job(struct job *job)
 {
-    int ret = start_job_internal(job);
+    set_signal_mask(SIGCHLD, true);
+    if (job->fg)
+    {
+        wait_for_fg_job(job);
+    }
+    else
+    {
+        job_handle_add_first(&current_job, make_job_handle(job));
+        job_handle_add_last(&pending_jobs, make_job_handle(job));
+    }
+    set_signal_mask(SIGCHLD, false);
     if (get_terminal(current_terminal, getpgrp()) == -1)
     {
         perror("tty");
@@ -376,87 +400,131 @@ int start_job(struct job *job)
     }
     tcflush(current_terminal, TCIFLUSH);
 
+    return 0;
+}
+
+int start_job(struct job *job)
+{
+    int ret = start_job_internal(job);
+    if (ret != -1)
+        launch_job(job);
+
     return ret;
 }
 
 
-//deprecated
-int execute(const char * const command, char * const * const arguments, bool bg)
+enum parse_result do_cd(const char * const * const args, const int argc)
 {
-    pid_t child_pid = fork();
-    if (child_pid == -1)
+    if (argc > 2)
     {
-        perror("Error while forking");
-        return -1;
+        return PR_SYNTAX_ERROR;
     }
-
-    if (child_pid == 0)
+    else if (argc == 1)
     {
-        setuid(getuid());
-        setgid(getgid());
-        if (setpgid(0, 0) == -1)
+        int ret = chdir(getenv("HOME"));
+        if (ret == -1)
         {
-            perror("Error assigning group");
-            exit(1);
-        }
-
-        set_signal_handler(SIGTSTP, SIG_DFL);
-        set_signal_handler(SIGTTIN, SIG_DFL);
-        set_signal_handler(SIGTTOU, SIG_DFL);
-        set_signal_handler(SIGINT,  SIG_DFL);
-        set_signal_handler(SIGQUIT, SIG_DFL);
-        set_signal_handler(SIGCHLD, SIG_DFL);
-
-        tcsetpgrp(current_terminal, getpgid(getpid()));
-        close(current_terminal);
-
-        if (execvp(command, arguments) == -1)
-        {
-            char sprintf_buffer[BUFF_SIZE];
-            switch (errno)
-            {
-            case ENOENT:
-                snprintf(sprintf_buffer, BUFF_SIZE, "Command '%s' not found", command);
-                perror(sprintf_buffer);
-                exit(1);
-            default:
-                snprintf(sprintf_buffer, BUFF_SIZE, "Error starting command '%s'", command);
-                perror(sprintf_buffer);
-                exit(1);
-            }
-        }
-    }
-    else if (!bg)
-    {
-        int status;
-        setpgid(child_pid, 0);
-        tcsetpgrp(current_terminal, getpgid(child_pid));
-        struct job *new_job = (struct job*)malloc(sizeof(*current_job));
-        new_job->pgid = child_pid;
-        new_job->fg = false;
-        job_add_first(&current_job, new_job);
-        waitpid(child_pid, &status, 0);
-        // SIGTTIN SIGTTOU etc.
-        tcsetpgrp(current_terminal, getpgid(getpid()));
-        close(current_terminal);
-        if (WIFEXITED(status))
-        {
-            int ret = WEXITSTATUS(status);
-            return ret;
-        }
-        else
-        {
-            return 1;
+            return PR_ERROR_ERRNO;
         }
     }
     else
     {
-        struct job *new_job = (struct job*)malloc(sizeof(*current_job));
-        new_job->pgid = child_pid;
-        new_job->fg = false;
-        job_add_first(&current_job, new_job);
-        //pending_jobs++;
+        int ret = chdir(args[1]);
+        if (ret == -1)
+        {
+            return PR_ERROR_ERRNO;
+        }
     }
 
-    return 0;
+    return PR_OK;
 }
+
+enum parse_result do_jobs(const char * const * const args, const int argc)
+{
+    struct job_handle *ptr = current_job;
+    int i = 1;
+    while (ptr != NULL)
+    {
+        print_job(i++, ptr->job, false);
+        ptr = ptr->next;
+    }
+    return PR_OK;
+}
+
+struct job_handle* get_job_handle(const char * const * const args, const int argc)
+{
+    if (argc > 2)
+    {
+        return (struct job_handle*)-1;
+    }
+    int index = 1;
+    if (argc > 1)
+    {
+        char *ptr;
+        index = strtol(args[1], &ptr, 10);
+        if (args[1][0] == '\0' || *ptr != '\0')
+        {
+            return (struct job_handle*)-1;
+        }
+    }
+    struct job_handle *handle = current_job;
+    int i = 0;
+    while (handle != NULL)
+    {
+        if (++i == index)
+            break;
+        handle = handle->next;
+    }
+    if (i != index)
+        return NULL;
+    
+    handle = remove_job_handle(&current_job, handle->job->pgid);
+    if (handle == NULL)
+        return (struct job_handle*)-999;
+
+    return handle;
+}
+
+enum parse_result do_fg(const char * const * const args, const int argc)
+{
+    struct job_handle *handle = get_job_handle(args, argc);
+    if (handle == (struct job_handle*)-1)
+        return PR_SYNTAX_ERROR;
+    else if (handle == NULL)
+        return PR_OTHER_ERROR;
+    
+    if (get_terminal(current_terminal, handle->job->pgid) == -1)
+    {
+        job_handle_add_last(&current_job, handle);
+        return PR_ERROR_ERRNO;
+    }
+    killpg(handle->job->pgid, SIGCONT);
+    handle->job->stopped = false;
+    handle->job->fg = true;
+    launch_job(handle->job);
+    free(handle);
+    
+    return PR_OK;
+}
+
+enum parse_result do_bg(const char * const * const args, const int argc)
+{
+    struct job_handle *handle = get_job_handle(args, argc);
+    if (handle == (struct job_handle*)-1)
+        return PR_SYNTAX_ERROR;
+    else if (handle == NULL)
+        return PR_OTHER_ERROR;
+    
+    killpg(handle->job->pgid, SIGCONT);
+    handle->job->stopped = false;
+    job_handle_add_last(&current_job, handle);
+    job_handle_add_last(&pending_jobs, make_job_handle(handle->job));
+    
+    return PR_OK;
+}
+
+enum parse_result do_exit(const char * const * const args, const int argc) 
+{
+    return PR_EXIT;
+}
+

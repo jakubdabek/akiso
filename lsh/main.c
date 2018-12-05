@@ -24,33 +24,22 @@ sigset_t default_mask;
 
 bool print_pending_jobs()
 {
-    struct job *ptr;
+    struct job_handle *ptr;
     bool printed = false;
-    while ((ptr = remove_job(&pending_jobs, 0)) != NULL)
+    while ((ptr = remove_job_handle(&pending_jobs, 0)) != NULL)
     {
-        if (ptr->stopped)
-            printf("job: %8ld (Stopped)\n", (long)ptr->pgid);
-        else
-            printf("job: %8ld (Running)\n", (long)ptr->pgid);
+        print_job(-1, ptr->job, false);
         printed = true;
     }
-    while ((ptr = remove_job(&pending_removed_jobs, 0)) != NULL)
+    while ((ptr = remove_job_handle(&pending_removed_jobs, 0)) != NULL)
     {
-        printf("job: %8ld (Done)\n", (long)ptr->pgid);
+        print_job(-1, ptr->job, true);
+        destroy_job(ptr->job);
         free(ptr);
         printed = true;
     }
 
     return printed;
-}
-
-void print_jobs()
-{
-    struct job *ptr = current_job;
-    while (ptr != NULL)
-    {
-
-    }
 }
 
 void print_prompt()
@@ -71,23 +60,23 @@ void handle_chld(int _, siginfo_t *info, void* __)
     pid_t pid;
     int status;
 
-    struct job *job = current_job;
-    while (job != NULL)
+    struct job_handle *handle = current_job;
+    while (handle != NULL)
     {
         while (true)
         {
-            pid = waitpid(-job->pgid, &status, WNOHANG | WUNTRACED);
+            pid = waitpid(-handle->job->pgid, &status, WNOHANG | WUNTRACED);
             if (pid > 0)
             {
                 if (WIFEXITED(status) || WIFSIGNALED(status))
                 {
-                    job->pipeline_size--;
-                    job->falling_apart = true;
-                    killpg(job->pgid, SIGCONT);
+                    handle->job->pipeline_size--;
+                    handle->job->falling_apart = true;
+                    killpg(handle->job->pgid, SIGCONT);
                 }
                 else if (WIFSTOPPED(status))
                 {
-                    killpg(job->pgid, SIGSTOP);
+                    killpg(handle->job->pgid, SIGSTOP);
                 }
             }
             else
@@ -96,24 +85,25 @@ void handle_chld(int _, siginfo_t *info, void* __)
             }
         }
 
-        pid_t pgid = job->pgid;
-        int pipeline_size = job->pipeline_size;
-        job = job->next;
+        pid_t pgid = handle->job->pgid;
+        int pipeline_size = handle->job->pipeline_size;
+        handle = handle->next;
 
+        //TODO: refactor
         if (pipeline_size == 0)
         {
-            struct job *removed = remove_job(&current_job, pgid);
+            struct job_handle *removed = remove_job_handle(&current_job, pgid);
             if (removed != NULL)
             {
-                job_add_last(&pending_removed_jobs, removed);
+                job_handle_add_last(&pending_removed_jobs, removed);
             }
         }
     }
 
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
     {
-        struct job *removed = remove_job(&current_job, pid);
-        job_add_first(&pending_removed_jobs, removed);
+        struct job_handle *removed = remove_job_handle(&current_job, pid);
+        job_handle_add_first(&pending_removed_jobs, removed);
     }
 }
 
@@ -241,10 +231,17 @@ void start()
         case PR_ERROR_ERRNO:
             perror(buff);
             break;
+        case PR_OTHER_ERROR:
+            fprintf(stderr, "\"%s\" : error\n", buff);
+            break;
         case PR_OK:
             break;
         case PR_EXIT:
             return;
+        default:
+            fprintf(stderr, "Something really bad happened\n");
+            exit(2);
+            break;
         }
 
         // free(piped);
@@ -253,21 +250,17 @@ void start()
 
 void cleanup()
 {
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGCHLD);
-    sigprocmask(SIG_BLOCK, &mask, NULL);
+    set_signal_mask(SIGCHLD, true);
+    printf("\n");
 
-    struct job *ptr = current_job;
-    while (ptr != NULL)
+    struct job_handle *handle;
+    while ((handle = remove_job_handle(&current_job, 0)) != NULL)
     {
-        printf("killing %d\n", ptr->pgid);
-        if (killpg(ptr->pgid, SIGHUP) != -1)
-        {
-            killpg(ptr->pgid, SIGCONT);
-            remove_job(&current_job, ptr->pgid);
-        }
-        ptr = ptr->next;
+        printf("killing %d\n", handle->job->pgid);
+        killpg(handle->job->pgid, SIGHUP);
+        killpg(handle->job->pgid, SIGCONT);
+        destroy_job(handle->job);
+        free(handle);
     }
 
     int status;

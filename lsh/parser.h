@@ -7,7 +7,7 @@
 #define BUFF_SIZE 512
 #define MAX_ARGS 20
 
-enum parse_result { PR_OK = 1, PR_EXIT = 0, PR_SYNTAX_ERROR = -1, PR_ERROR_ERRNO = -2 };
+enum parse_result { PR_OK = 1, PR_EXIT = 0, PR_SYNTAX_ERROR = -1, PR_ERROR_ERRNO = -2, PR_OTHER_ERROR = -3 };
 
 //char** parse_tokens(const char *command, size_t *argc, const char *delimeters, bool allow_empty);
 const char* parse(char * buff, size_t buff_size, char ** arguments, size_t max_args, bool * bg);

@@ -189,32 +189,6 @@ static struct redirect* parse_redirect(const char * const str, bool is_out)
 #define EMPTY_PROCESS ((struct process*)0)
 #define ERROR_PROCESS ((struct process*)1)
 
-static const char * const builtins[] = 
-{
-    "cd",
-    "jobs",
-    "fg",
-    "bg",
-    "exit"
-};
-
-enum parse_result do_cd(const char * const *args, int argc);
-enum parse_result do_jobs(const char * const *args, int argc);
-enum parse_result do_fg(const char * const *args, int argc);
-enum parse_result do_bg(const char * const *args, int argc);
-enum parse_result do_exit(const char * const *args, int argc);
-
-typedef enum parse_result (*builtin_command)(const char * const *args, int argc);
-
-static const builtin_command builtin_commands[] =
-{
-    do_cd,
-    do_jobs,
-    do_fg,
-    do_bg,
-    do_exit
-};
-
 static struct process* parse_process(const char * const command)
 {
     size_t argc;
@@ -325,7 +299,7 @@ enum parse_result interpret_line(const char * const line)
 
     //print_job(job);
 
-    for (int i = 0; i < sizeof(builtins) / sizeof(*builtins); i++)
+    for (int i = 0; i < builtins_count; i++)
     {
         if (strcmp(job->pipeline->arguments[0], builtins[i]) == 0)
         {
@@ -343,51 +317,4 @@ enum parse_result interpret_line(const char * const line)
     start_job(job);
 
     return PR_OK;
-}
-
-enum parse_result do_cd(const char * const * const args, const int argc)
-{
-    if (argc > 2)
-    {
-        return PR_SYNTAX_ERROR;
-    }
-    else if (argc == 1)
-    {
-        int ret = chdir(getenv("HOME"));
-        if (ret == -1)
-        {
-            return PR_ERROR_ERRNO;
-        }
-    }
-    else
-    {
-        int ret = chdir(args[1]);
-        if (ret == -1)
-        {
-            return PR_ERROR_ERRNO;
-        }
-    }
-
-    return PR_OK;
-}
-
-enum parse_result do_jobs(const char * const * const args, const int argc)
-{
-    printf("jobs\n");
-    return PR_OK;
-}
-
-enum parse_result do_fg(const char * const * const args, const int argc)
-{
-    printf("fg\n");
-    return PR_OK;
-}
-enum parse_result do_bg(const char * const * const args, const int argc)
-{
-    printf("bg\n");
-    return PR_OK;
-}
-enum parse_result do_exit(const char * const * const args, const int argc) 
-{
-    return PR_EXIT;
 }
