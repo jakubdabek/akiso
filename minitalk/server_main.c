@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stdbool.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
@@ -64,6 +65,29 @@ struct user
     const char *name;
     int to;
 } logged_in[16];
+
+
+static void remove_user(struct user *user);
+static int read_user(struct user *user, char *buff, size_t len, bool leave_newline)
+{
+    int ret = read_line(user->fd, buff, len);
+    if (ret <= 0)
+    {
+        if (ret < 0)
+            fprintf(stderr, "Error during read from %d\n", user->fd);
+        else
+            fprintf(stderr, "Connection with %d closed\n", user->fd);
+        remove_user(user);
+        return -1;
+    }
+    else
+    {
+        if (ret < len && !leave_newline)
+            buff[ret - 1] = '\0';
+        fprintf(stderr, "Read from %d: \"%s\"\n", user->fd, buff);
+        return ret;
+    }
+}
 
 static void remove_user(struct user *user)
 {
@@ -194,26 +218,16 @@ int main(int argc, char *argv[])
                 {
                     if (FD_ISSET(user->fd, &readable))
                     {
-                        char buff[256];
-                        int ret = read_line(user->fd, buff, 256);
-                        if (ret <= 0)
-                        {
-                            if (ret < 0)
-                                fprintf(stderr, "Error during read from %d\n", user->fd);
-                            else
-                                fprintf(stderr, "Connection with %d closed\n", user->fd);
-                            remove_user(user);
-                        }
-                        else
-                        {
-                            if (ret < 256)
-                                buff[ret - 1] = '\0';
-                            fprintf(stderr, "Read from %d: \"%s\"\n", user->fd, buff);
-                            if (user->name == NULL)
-                            {
+                        if (user->name == NULL)
+                        {                            
+                            char buff[256];
+                            if (read_user(user, buff, 256, false) > 0)
                                 user->name = strdup(buff);
-                            }
-                            else if (user->to == FD_AWAITING)
+                        }
+                        else if (user->to == FD_AWAITING)
+                        {
+                            char buff[256];
+                            if (read_user(user, buff, 256, false) > 0)
                             {
                                 char *ptr;
                                 int new_to = strtol(buff, &ptr, 10);
@@ -236,9 +250,14 @@ int main(int argc, char *argv[])
                                     }
                                 }
                             }
-                            else if (user->to > 0)
+                        }
+                        else if (user->to > 0)
+                        {
+                            if (FD_ISSET(user->to, &writable))
                             {
-                                if (FD_ISSET(user->to, &writable))
+                                char buff[256];
+                                int ret;
+                                if ((ret = read_user(user, buff, 256, true)) > 0)
                                 {
                                     write(user->to, buff, ret);
                                     FD_CLR(user->to, &writable);
@@ -251,7 +270,7 @@ int main(int argc, char *argv[])
             for (int i = 0; i < 16; i++)
             {
                 struct user *user = &logged_in[i];
-                if (FD_ISSET(user->fd, &writable))
+                if (FD_ISSET(user->fd, &writable) && user->to == FD_AWAITING)
                 {
                     char buff[512];
                     ssize_t written = 0;

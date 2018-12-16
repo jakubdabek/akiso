@@ -30,7 +30,7 @@ ssize_t read_line(int fd, char *buffer, size_t n)
         if (ret == -1)
         {
             if (errno == EINTR)
-                continue;
+                return -1;
             else
                 return -1;
         }
@@ -56,6 +56,7 @@ ssize_t read_line(int fd, char *buffer, size_t n)
     return total;
 }
 
+void handler(int _) {}
 
 int main(int argc, char *argv[])
 {
@@ -80,13 +81,29 @@ int main(int argc, char *argv[])
     if (connect(server_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         fatal("connect");
 
+    struct sigaction act;
+    act.sa_flags = 0;
+    sigemptyset(&act.sa_mask);
+    act.sa_handler = handler;
+    if (sigaction(SIGALRM, &act, NULL) == -1)
+        fatal("sigaction");
+    
+    struct itimerval timer_config = 
+    {
+        .it_interval = { 0, 0 },
+        .it_value = { 2, 0 }
+    };
+    struct itimerval resetter = { {0, 0}, {0, 0} };
     if (fork() == 0)
     {
         char buff[1024];
         int ret;
-        while ((ret = read_line(server_fd, buff, 1024)) > 0)
+        setitimer(ITIMER_REAL, &timer_config, NULL);
+        while ((ret = read(server_fd, buff, 10)) > 0 || errno == EINTR)
         {
-            write(STDOUT_FILENO, buff, ret);
+            setitimer(ITIMER_REAL, &resetter, NULL);
+            if (ret > 0)
+                write(STDOUT_FILENO, buff, ret);
         }
     }
     else
