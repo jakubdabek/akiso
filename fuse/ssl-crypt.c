@@ -13,8 +13,24 @@ static void handleErrors(void)
     abort();
 }
 
-int my_encrypt_base64(unsigned char *plaintext, int plaintext_len, unsigned char *key,
-  unsigned char *iv, unsigned char *ciphertext)
+static char* strn_replace(char *str, size_t n, char original, char replacement)
+{
+    char *ptr = str;
+    if (str == NULL)
+        return NULL;
+    size_t counter = 0;
+    while (*str != '\0' && counter++ < n)
+    {
+        if (*str == original)
+            *str = replacement;
+        str++;
+    }
+
+    return ptr;
+}
+
+int my_encrypt_base64(const char *plaintext, int plaintext_len, cipher_t *key,
+  cipher_t *iv, cipher_t *ciphertext)
 {
     BIO *encrypter;
     if ((encrypter = BIO_new(BIO_f_cipher())) == NULL)
@@ -44,13 +60,14 @@ int my_encrypt_base64(unsigned char *plaintext, int plaintext_len, unsigned char
     long ciphertext_len = BIO_get_mem_data(mem, &data);
     memcpy(ciphertext, data, ciphertext_len);
     ciphertext[ciphertext_len] = '\0';
+    strn_replace((char*)ciphertext, ciphertext_len, '/', '_');
     BIO_free_all(encrypter);
 
     return ciphertext_len;
 }
 
-int my_decrypt_base64(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
-    unsigned char *iv, unsigned char *plaintext)
+int my_decrypt_base64(const cipher_t *ciphertext, int ciphertext_len, cipher_t *key,
+    cipher_t *iv, char *plaintext)
 {
     BIO *encrypter;
     if ((encrypter = BIO_new(BIO_f_cipher())) == NULL)
@@ -61,6 +78,7 @@ int my_decrypt_base64(unsigned char *ciphertext, int ciphertext_len, unsigned ch
         handleErrors();
     BIO_set_flags(base64, BIO_FLAGS_BASE64_NO_NL);
     BIO_push(encrypter, base64);
+    strn_replace((char*)ciphertext, ciphertext_len, '_', '/');
     BIO *memm = BIO_new_mem_buf(ciphertext, ciphertext_len);
     if ((memm = BIO_new(BIO_s_mem())) == NULL)
         handleErrors();

@@ -1,7 +1,9 @@
 #pragma once
 
-int my_encrypt_base64(unsigned char *plaintext, int plaintext_len, unsigned char *key,
-    unsigned char *iv, unsigned char *ciphertext);
+typedef unsigned char cipher_t;
 
-int my_decrypt_base64(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
-    unsigned char *iv, unsigned char *plaintext);
+int my_encrypt_base64(const char *plaintext, int plaintext_len, cipher_t *key,
+    cipher_t *iv, cipher_t *ciphertext);
+
+int my_decrypt_base64(const cipher_t *ciphertext, int ciphertext_len, cipher_t *key,
+    cipher_t *iv, char *plaintext);

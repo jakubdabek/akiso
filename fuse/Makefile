@@ -3,9 +3,14 @@ LDFLAGS:=$(shell pkg-config fuse --libs) $(shell pkg-config libcrypto --libs)
 
 all: realmain
 
-realmain: realmain.c ssl-crypt.o tiny-AES-c/aes.o
+realmain: realmain.c path_util.o ssl-crypt.o
+	gcc $^ -o $@ $(CFLAGS) $(LDFLAGS)
 
-ssl-crypt.o:
+path_util.o: path_util.c ssl-crypt.c ssl-crypt.h
+	gcc $< -c -o $@ $(CFLAGS) $(LDFLAGS)
+
+ssl-crypt.o: ssl-crypt.c ssl-crypt.h
+	gcc $< -c -o $@ $(CFLAGS) $(LDFLAGS)
 
 clean:
 	$(RM) realmain *.o
