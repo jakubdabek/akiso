@@ -26,6 +26,7 @@ int my_getattr(const char *path, struct stat *statbuf)
 {
     cipher_t full_path[PATH_MAX];
     get_real_path(path, full_path, key, iv);
+    fprintf(stderr, "getattr(%s): real_path: \"%s\"\n", path, full_path);
 
     return stat((const char*)full_path, statbuf);
 }
@@ -35,14 +36,15 @@ int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
 {
     cipher_t full_path[PATH_MAX];
     get_real_path(path, full_path, key, iv);
+    fprintf(stderr, "readdir(%s): real_path: \"%s\"\n", path, full_path);
     DIR *dir_ptr = opendir((const char*)full_path);
     struct dirent *dirent;
     dirent = readdir(dir_ptr);
     do
     {
         cipher_t buff[PATH_MAX];
-        strncpy((char*)buff, dirent->d_name, PATH_MAX);
         my_encrypt_base64(dirent->d_name, strlen(dirent->d_name), key, iv, buff);
+        fprintf(stderr, "got: \"%s\", giving directory: \"%s\"\n", dirent->d_name, buff);
         if (filler(buf, (const char*)buff, NULL, 0) != 0)
         {
             return -ENOMEM;
