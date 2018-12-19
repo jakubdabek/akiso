@@ -143,7 +143,10 @@ void usage(const char * const name)
 int main(int argc, char *argv[])
 {
     fprintf(stderr, "Fuse library version %d.%d\n", FUSE_MAJOR_VERSION, FUSE_MINOR_VERSION);
-    if ((argc < 34) || (argv[argc - 2][0] == '-') || (argv[argc - 1][0] == '-'))
+    if ((argc < 3) ||
+        (argv[argc - 3][0] == '-') ||
+        (argv[argc - 2][0] == '-') ||
+        (argv[argc - 1][0] == '-'))
 	    usage(argv[0]);
 
     strncpy((char*)key, argv[argc-2], 16);
