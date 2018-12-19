@@ -177,6 +177,16 @@ int my_access(const char *path, int mask)
     return access((const char*)real_path, mask);
 }
 
+int my_releasedir(const char *path, struct fuse_file_info *fi)
+{    
+    return closedir((DIR *) (uintptr_t) fi->fh);
+}
+
+int my_release(const char *path, struct fuse_file_info *fi)
+{
+    return close(fi->fh);
+}
+
 static struct fuse_operations operations = 
 {
     .getattr	= my_getattr,
@@ -197,6 +207,8 @@ static struct fuse_operations operations =
     .fgetattr   = my_fgetattr,
     .access     = my_access,
     .ftruncate  = my_ftruncate,
+    .releasedir = my_releasedir,
+    .release    = my_release
 };
 
 void usage(const char * const name)
