@@ -22,11 +22,13 @@ size_t root_dir_len;
 cipher_t key[16];
 cipher_t *iv  = (cipher_t*)"0123456789012345"; //meh
 
+static FILE *log_file;
+
 int my_getattr(const char *path, struct stat *statbuf)
 {
     cipher_t full_path[PATH_MAX];
     get_real_path(path, full_path, key, iv);
-    fprintf(stderr, "getattr(%s): real_path: \"%s\"\n", path, full_path);
+    fprintf(log_file, "getattr(%s): real_path: \"%s\"\n", path, full_path);
 
     return stat((const char*)full_path, statbuf);
 }
@@ -36,7 +38,7 @@ int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
 {
     cipher_t full_path[PATH_MAX];
     get_real_path(path, full_path, key, iv);
-    fprintf(stderr, "readdir(%s): real_path: \"%s\"\n", path, full_path);
+    fprintf(log_file, "readdir(%s): real_path: \"%s\"\n", path, full_path);
     DIR *dir_ptr = opendir((const char*)full_path);
     struct dirent *dirent;
     dirent = readdir(dir_ptr);
@@ -44,7 +46,7 @@ int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
     {
         cipher_t buff[PATH_MAX];
         my_encrypt_base64(dirent->d_name, strlen(dirent->d_name), key, iv, buff);
-        fprintf(stderr, "got: \"%s\", giving directory: \"%s\"\n", dirent->d_name, buff);
+        fprintf(log_file, "got: \"%s\", giving directory: \"%s\"\n", dirent->d_name, buff);
         if (filler(buf, (const char*)buff, NULL, 0) != 0)
         {
             return -ENOMEM;
@@ -161,6 +163,13 @@ int main(int argc, char *argv[])
     argv[argc-2] = argv[argc-1];
     argv[argc-1] = NULL;
     argc--;
+
+    log_file = fopen("log.log", "w");
+    if (log_file == NULL)
+    {
+        perror("log open");
+        abort();
+    }
     
     return fuse_main(argc, argv, &operations, NULL);
 }
