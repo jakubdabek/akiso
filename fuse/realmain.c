@@ -182,6 +182,20 @@ int my_access(const char *path, int mask)
     return access((const char*)real_path, mask);
 }
 
+int my_opendir(const char *path, struct fuse_file_info *fi)
+{
+    cipher_t real_path[PATH_MAX];
+    get_real_path(path, real_path, key, iv);
+    DIR *dp = opendir((const char*)real_path);
+    if (dp == NULL)
+	    return -1;
+    
+    fi->fh = (intptr_t)dp;
+    
+    return 0;
+}
+
+
 int my_releasedir(const char *path, struct fuse_file_info *fi)
 {
     fprintf(log_file, "realeasedir(%s)\n", path);
@@ -214,6 +228,7 @@ static struct fuse_operations operations =
     .fgetattr   = my_fgetattr,
     .access     = my_access,
     .ftruncate  = my_ftruncate,
+    .opendir    = my_opendir,
     .releasedir = my_releasedir,
     .release    = my_release
 };
