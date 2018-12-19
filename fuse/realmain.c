@@ -44,17 +44,17 @@ int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
     dirent = readdir(dir_ptr);
     do
     {
-        cipher_t buff[PATH_MAX];
+        char buff[PATH_MAX];
         if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0)
         {
             strcpy((char*)buff, dirent->d_name);
         }
         else
         {
-            my_encrypt_base64(dirent->d_name, strlen(dirent->d_name), key, iv, buff);
+            my_decrypt_base64((const cipher_t*)dirent->d_name, strlen(dirent->d_name), key, iv, buff);
         }
         fprintf(log_file, "got: \"%s\", giving directory: \"%s\"\n", dirent->d_name, buff);
-        if (filler(buf, (const char*)buff, NULL, 0) != 0)
+        if (filler(buf, buff, NULL, 0) != 0)
         {
             return -ENOMEM;
         }
@@ -244,6 +244,7 @@ int main(int argc, char *argv[])
         perror("log open");
         abort();
     }
+    setvbuf(log_file, NULL, _IOLBF, 0);
     
     return fuse_main(argc, argv, &operations, NULL);
 }
