@@ -26,20 +26,20 @@ static FILE *log_file;
 
 int my_getattr(const char *path, struct stat *statbuf)
 {
-    cipher_t full_path[PATH_MAX];
-    get_real_path(path, full_path, key, iv);
-    fprintf(log_file, "getattr(%s): real_path: \"%s\"\n", path, full_path);
+    cipher_t real_path[PATH_MAX];
+    get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "getattr(%s): real_path: \"%s\"\n", path, real_path);
 
-    return stat((const char*)full_path, statbuf);
+    return stat((const char*)real_path, statbuf);
 }
 
 int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
 	       struct fuse_file_info *fi)
 {
-    cipher_t full_path[PATH_MAX];
-    get_real_path(path, full_path, key, iv);
-    fprintf(log_file, "readdir(%s): real_path: \"%s\"\n", path, full_path);
-    DIR *dir_ptr = opendir((const char*)full_path);
+    cipher_t real_path[PATH_MAX];
+    get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "readdir(%s): real_path: \"%s\"\n", path, real_path);
+    DIR *dir_ptr = opendir((const char*)real_path);
     struct dirent *dirent;
     dirent = readdir(dir_ptr);
     do
@@ -76,6 +76,7 @@ int my_mknod(const char *path, mode_t mode, dev_t dev)
 {
     cipher_t real_path[PATH_MAX];
     my_encrypt_base64(path, strlen(path), key, iv, real_path);
+    fprintf(log_file, "mknod(%s): real_path: \"%s\"\n", path, real_path);
 
     return mknod((const char*)real_path, mode, dev);
 }
@@ -100,6 +101,7 @@ int my_open(const char *path, struct fuse_file_info *fi)
 {
     cipher_t real_path[PATH_MAX];
     my_encrypt_base64(path, strlen(path), key, iv, real_path);
+    fprintf(log_file, "open(%s): real_path: \"%s\"\n", path, real_path);
     int fd = open((const char*)real_path, fi->flags);
 	
     if (fd >= 0)
@@ -161,11 +163,13 @@ int my_utime(const char *path, struct utimbuf *ubuf)
 
 int my_fgetattr(const char *path, struct stat *statbuf, struct fuse_file_info *fi)
 {
+    fprintf(log_file, "fgetattr(%s)\n", path);
     return fstat(fi->fh, statbuf);
 }
 
 int my_ftruncate(const char *path, off_t offset, struct fuse_file_info *fi)
 {
+    fprintf(log_file, "ftruncate(%s)\n", path);
     return ftruncate(fi->fh, offset);
 }
 
@@ -173,17 +177,20 @@ int my_access(const char *path, int mask)
 {
     cipher_t real_path[PATH_MAX];
     my_encrypt_base64(path, strlen(path), key, iv, real_path);
+    fprintf(log_file, "access(%s): real_path: \"%s\"\n", path, real_path);
 
     return access((const char*)real_path, mask);
 }
 
 int my_releasedir(const char *path, struct fuse_file_info *fi)
-{    
+{
+    fprintf(log_file, "realeasedir(%s)\n", path);
     return closedir((DIR *) (uintptr_t) fi->fh);
 }
 
 int my_release(const char *path, struct fuse_file_info *fi)
 {
+    fprintf(log_file, "realease(%s)\n", path);
     return close(fi->fh);
 }
 
