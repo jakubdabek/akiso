@@ -129,6 +129,54 @@ int my_fsync(const char *path, int datasync, struct fuse_file_info *fi)
 	    return fsync(fi->fh);
 }
 
+int my_chmod(const char *path, mode_t mode)
+{
+    cipher_t real_path[PATH_MAX];
+    my_encrypt_base64(path, strlen(path), key, iv, real_path);
+    return chmod((const char*)real_path, mode);
+}
+
+int my_chown(const char *path, uid_t uid, gid_t gid)
+{
+    cipher_t real_path[PATH_MAX];
+    my_encrypt_base64(path, strlen(path), key, iv, real_path);
+    return chown((const char*)real_path, uid, gid);
+}
+
+int my_truncate(const char *path, off_t newsize)
+{
+    cipher_t real_path[PATH_MAX];
+    my_encrypt_base64(path, strlen(path), key, iv, real_path);
+
+    return truncate((const char*)real_path, newsize);
+}
+
+int my_utime(const char *path, struct utimbuf *ubuf)
+{
+    cipher_t real_path[PATH_MAX];
+    my_encrypt_base64(path, strlen(path), key, iv, real_path);
+
+    return utime((const char*)real_path, ubuf);
+}
+
+int my_fgetattr(const char *path, struct stat *statbuf, struct fuse_file_info *fi)
+{
+    return fstat(fi->fh, statbuf);
+}
+
+int my_ftruncate(const char *path, off_t offset, struct fuse_file_info *fi)
+{
+    return ftruncate(fi->fh, offset);
+}
+
+int my_access(const char *path, int mask)
+{
+    cipher_t real_path[PATH_MAX];
+    my_encrypt_base64(path, strlen(path), key, iv, real_path);
+
+    return access((const char*)real_path, mask);
+}
+
 static struct fuse_operations operations = 
 {
     .getattr	= my_getattr,
@@ -142,6 +190,13 @@ static struct fuse_operations operations =
     .write      = my_write,
     .fsync      = my_fsync,
     .readdir    = my_readdir,
+    .chmod      = my_chmod,
+    .chown      = my_chown,
+    .truncate   = my_truncate,
+    .utime      = my_utime,
+    .fgetattr   = my_fgetattr,
+    .access     = my_access,
+    .ftruncate  = my_ftruncate,
 };
 
 void usage(const char * const name)
