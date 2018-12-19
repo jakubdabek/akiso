@@ -228,6 +228,7 @@ int main(int argc, char *argv[])
 	    usage(argv[0]);
 
     strncpy((char*)key, argv[argc-2], 16);
+    memset(key + strlen((char*)key), 0, 16 - strlen((char*)key));
     argv[argc-2] = argv[argc-1];
     argv[argc-1] = NULL;
     argc--;
