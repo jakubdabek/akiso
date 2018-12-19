@@ -24,13 +24,21 @@ cipher_t *iv  = (cipher_t*)"0123456789012345"; //meh
 
 static FILE *log_file;
 
+static int my_syscall(int ret)
+{
+    if (ret < 0)
+        ret = -errno;
+
+    return ret;
+}
+
 int my_getattr(const char *path, struct stat *statbuf)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
     fprintf(log_file, "getattr(%s): real_path: \"%s\"\n", path, real_path);
 
-    return stat((const char*)real_path, statbuf);
+    return my_syscall(lstat((const char*)real_path, statbuf));
 }
 
 int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
@@ -68,8 +76,9 @@ int my_mkdir(const char *path, mode_t mode)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "mkdir(%s): real_path: \"%s\"\n", path, real_path);
 
-    return mkdir((const char*)real_path, mode);
+    return my_syscall(mkdir((const char*)real_path, mode));
 }
 
 int my_mknod(const char *path, mode_t mode, dev_t dev)
@@ -78,23 +87,25 @@ int my_mknod(const char *path, mode_t mode, dev_t dev)
     get_real_path(path, real_path, key, iv);
     fprintf(log_file, "mknod(%s): real_path: \"%s\"\n", path, real_path);
 
-    return mknod((const char*)real_path, mode, dev);
+    return my_syscall(mknod((const char*)real_path, mode, dev));
 }
 
 int my_unlink(const char *path)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "unlink(%s): real_path: \"%s\"\n", path, real_path);
 
-    return unlink((const char*)real_path);
+    return my_syscall(unlink((const char*)real_path));
 }
 
 int my_rmdir(const char *path)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "rmdir(%s): real_path: \"%s\"\n", path, real_path);
 
-    return rmdir((const char*)real_path);
+    return my_syscall(rmdir((const char*)real_path));
 }
 
 int my_open(const char *path, struct fuse_file_info *fi)
@@ -106,71 +117,82 @@ int my_open(const char *path, struct fuse_file_info *fi)
 	
     if (fd >= 0)
         fi->fh = fd;
+    else
+        return -errno;
     
-    return fd;
+    return 0;
 }
 
 int my_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
+    fprintf(log_file, "read(%s)", path);
     //TODO: encrypt data
-    return pread(fi->fh, buf, size, offset);
+    return my_syscall(pread(fi->fh, buf, size, offset));
 }
 
 int my_write(const char *path, const char *buf, size_t size, off_t offset,
 	     struct fuse_file_info *fi)
 {
+    fprintf(log_file, "write(%s)", path);
     //TODO: encrypt data
-    return pwrite(fi->fh, buf, size, offset);
+    return my_syscall(pwrite(fi->fh, buf, size, offset));
 }
 
 int my_fsync(const char *path, int datasync, struct fuse_file_info *fi)
 {
+    fprintf(log_file, "fsync(%s)", path);
     if (datasync)
-	    return fdatasync(fi->fh);
+	    return my_syscall(fdatasync(fi->fh));
     else
-	    return fsync(fi->fh);
+	    return my_syscall(fsync(fi->fh));
 }
 
 int my_chmod(const char *path, mode_t mode)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
-    return chmod((const char*)real_path, mode);
+    fprintf(log_file, "chmod(%s): real_path: \"%s\"\n", path, real_path);
+
+    return my_syscall(chmod((const char*)real_path, mode));
 }
 
 int my_chown(const char *path, uid_t uid, gid_t gid)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
-    return chown((const char*)real_path, uid, gid);
+    fprintf(log_file, "chown(%s): real_path: \"%s\"\n", path, real_path);
+
+    return my_syscall(chown((const char*)real_path, uid, gid));
 }
 
 int my_truncate(const char *path, off_t newsize)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "truncate(%s): real_path: \"%s\"\n", path, real_path);
 
-    return truncate((const char*)real_path, newsize);
+    return my_syscall(truncate((const char*)real_path, newsize));
 }
 
 int my_utime(const char *path, struct utimbuf *ubuf)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "utime(%s): real_path: \"%s\"\n", path, real_path);
 
-    return utime((const char*)real_path, ubuf);
+    return my_syscall(utime((const char*)real_path, ubuf));
 }
 
 int my_fgetattr(const char *path, struct stat *statbuf, struct fuse_file_info *fi)
 {
     fprintf(log_file, "fgetattr(%s)\n", path);
-    return fstat(fi->fh, statbuf);
+    return my_syscall(fstat(fi->fh, statbuf));
 }
 
 int my_ftruncate(const char *path, off_t offset, struct fuse_file_info *fi)
 {
     fprintf(log_file, "ftruncate(%s)\n", path);
-    return ftruncate(fi->fh, offset);
+    return my_syscall(ftruncate(fi->fh, offset));
 }
 
 int my_access(const char *path, int mask)
@@ -179,7 +201,7 @@ int my_access(const char *path, int mask)
     get_real_path(path, real_path, key, iv);
     fprintf(log_file, "access(%s): real_path: \"%s\"\n", path, real_path);
 
-    return access((const char*)real_path, mask);
+    return my_syscall(access((const char*)real_path, mask));
 }
 
 int my_opendir(const char *path, struct fuse_file_info *fi)
@@ -189,7 +211,10 @@ int my_opendir(const char *path, struct fuse_file_info *fi)
     fprintf(log_file, "opendir(%s): real_path: \"%s\"\n", path, real_path);
     DIR *dp = opendir((const char*)real_path);
     if (dp == NULL)
-	    return -1;
+    {
+        fi->fh = -1;
+	    return -errno;
+    }
     
     fi->fh = (intptr_t)dp;
     
@@ -200,13 +225,17 @@ int my_opendir(const char *path, struct fuse_file_info *fi)
 int my_releasedir(const char *path, struct fuse_file_info *fi)
 {
     fprintf(log_file, "realeasedir(%s)\n", path);
-    return closedir((DIR *) (uintptr_t) fi->fh);
+    closedir((DIR *) (uintptr_t) fi->fh);
+
+    return 0;
 }
 
 int my_release(const char *path, struct fuse_file_info *fi)
 {
     fprintf(log_file, "realease(%s)\n", path);
-    return close(fi->fh);
+    close(fi->fh);
+
+    return 0;
 }
 
 static struct fuse_operations operations = 
