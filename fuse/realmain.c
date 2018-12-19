@@ -45,7 +45,14 @@ int my_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
     do
     {
         cipher_t buff[PATH_MAX];
-        my_encrypt_base64(dirent->d_name, strlen(dirent->d_name), key, iv, buff);
+        if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0)
+        {
+            strcpy((char*)buff, dirent->d_name);
+        }
+        else
+        {
+            my_encrypt_base64(dirent->d_name, strlen(dirent->d_name), key, iv, buff);
+        }
         fprintf(log_file, "got: \"%s\", giving directory: \"%s\"\n", dirent->d_name, buff);
         if (filler(buf, (const char*)buff, NULL, 0) != 0)
         {
