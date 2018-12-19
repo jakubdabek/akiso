@@ -377,17 +377,20 @@ static int wait_for_fg_job(struct job *job)
 
 static int launch_job(struct job *job)
 {
-    set_signal_mask(SIGCHLD, true);
-    if (job->fg)
+    if (job != NULL)
     {
-        wait_for_fg_job(job);
+        set_signal_mask(SIGCHLD, true);
+        if (job->fg)
+        {
+            wait_for_fg_job(job);
+        }
+        else
+        {
+            job_handle_add_first(&current_job, make_job_handle(job));
+            job_handle_add_last(&pending_jobs, make_job_handle(job));
+        }
+        set_signal_mask(SIGCHLD, false);
     }
-    else
-    {
-        job_handle_add_first(&current_job, make_job_handle(job));
-        job_handle_add_last(&pending_jobs, make_job_handle(job));
-    }
-    set_signal_mask(SIGCHLD, false);
     if (get_terminal(current_terminal, getpgrp()) == -1)
     {
         perror("tty");
@@ -408,6 +411,8 @@ int start_job(struct job *job)
     int ret = start_job_internal(job);
     if (ret != -1)
         launch_job(job);
+    else
+        launch_job(NULL);
 
     return ret;
 }

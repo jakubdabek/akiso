@@ -76,7 +76,8 @@ void handle_chld(int _, siginfo_t *info, void* __)
                 }
                 else if (WIFSTOPPED(status))
                 {
-                    killpg(handle->job->pgid, SIGSTOP);
+                    killpg(handle->job->pgid, WSTOPSIG(status));
+                    handle->job->stopped = true;
                 }
             }
             else
