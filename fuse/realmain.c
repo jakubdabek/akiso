@@ -186,6 +186,7 @@ int my_opendir(const char *path, struct fuse_file_info *fi)
 {
     cipher_t real_path[PATH_MAX];
     get_real_path(path, real_path, key, iv);
+    fprintf(log_file, "opendir(%s): real_path: \"%s\"\n", path, real_path);
     DIR *dp = opendir((const char*)real_path);
     if (dp == NULL)
 	    return -1;
