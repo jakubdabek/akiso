@@ -12,5 +12,8 @@ path_util.o: path_util.c ssl-crypt.c ssl-crypt.h
 ssl-crypt.o: ssl-crypt.c ssl-crypt.h
 	gcc $< -c -o $@ $(CFLAGS) $(LDFLAGS)
 
+path_util_test: path_util_test.c path_util.o ssl-crypt.o
+	gcc $^ -o $@ $(CFLAGS) $(LDFLAGS)
+
 clean:
-	$(RM) realmain *.o
+	$(RM) realmain path_util_test *.o

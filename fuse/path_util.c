@@ -25,7 +25,15 @@ ssize_t get_real_path(const char * const path, cipher_t out_buff[PATH_MAX], ciph
     while (token != NULL)
     {
         out_buff[current_len++] = '/';
-        current_len += my_encrypt_base64(token, strlen(token), key, iv, (cipher_t*)&out_buff[current_len]);
+        if (strcmp(token, ".") == 0 || strcmp(token, "..") == 0)
+        {
+            strcpy((char*)&out_buff[current_len], token);
+            current_len += strlen(token);
+        }
+        else
+        {
+            current_len += my_encrypt_base64(token, strlen(token), key, iv, &out_buff[current_len]);
+        }
         // printf("token: \"%s\"\n", token);
         // printf("current_len: %ld, out_buff: \"%*s\"\n", current_len, current_len, out_buff);
         token = strtok_r(NULL, "/", &saveptr);
@@ -35,33 +43,3 @@ ssize_t get_real_path(const char * const path, cipher_t out_buff[PATH_MAX], ciph
 
     return strlen((char*)out_buff);
 }
-
-// static int main(int argc, char *argv[])
-// {
-//     if (argc < 2)
-//     {
-//         fprintf(stderr, "Usage: %s <root dir>\n", argv[0]);
-//         return 1;
-//     }
-
-//     root_dir = argv[1];
-//     root_dir_len = strlen(root_dir);
-
-//     char *str;
-//     size_t size = 0;
-//     ssize_t ret;
-//     while ((ret = getline(&str, &size, stdin)) != -1)
-//     {
-//         str[ret - 1] = '\0';
-//         char real_path[PATH_MAX];
-//         ssize_t ret = get_real_path(str, real_path, key, iv);
-//         if (ret == 0)
-//         {
-//             printf("incorrect path\n");
-//         }
-//         else
-//         {
-//             printf("encoded: \"%s\"\n", real_path);
-//         }
-//     }
-// }
