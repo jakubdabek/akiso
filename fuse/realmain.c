@@ -126,8 +126,15 @@ int my_open(const char *path, struct fuse_file_info *fi)
 int my_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
     fprintf(log_file, "read(%s)", path);
-    //TODO: encrypt data
-    return my_syscall(pread(fi->fh, buf, size, offset));
+    cipher_t encrypted[8192];
+
+    int ret = my_syscall(pread(fi->fh, encrypted, size, offset));
+    if (ret >= 0)
+    {
+        ret = my_decrypt_binary(encrypted, size, key, iv, buf);
+    }
+
+    return ret;
 }
 
 int my_write(const char *path, const char *buf, size_t size, off_t offset,
@@ -135,7 +142,9 @@ int my_write(const char *path, const char *buf, size_t size, off_t offset,
 {
     fprintf(log_file, "write(%s)", path);
     //TODO: encrypt data
-    return my_syscall(pwrite(fi->fh, buf, size, offset));
+    cipher_t encrypted[8192];
+    size = my_encrypt_binary(buf, size, key, iv, encrypted);
+    return my_syscall(pwrite(fi->fh, (char*)encrypted, size, offset));
 }
 
 int my_fsync(const char *path, int datasync, struct fuse_file_info *fi)

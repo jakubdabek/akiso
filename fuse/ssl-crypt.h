@@ -7,3 +7,9 @@ int my_encrypt_base64(const char *plaintext, int plaintext_len, cipher_t *key,
 
 int my_decrypt_base64(const cipher_t *ciphertext, int ciphertext_len, cipher_t *key,
     cipher_t *iv, char *plaintext);
+
+int my_encrypt_binary(const char *plaintext, int plaintext_len, cipher_t *key,
+    cipher_t *iv, cipher_t *ciphertext);
+
+int my_decrypt_binary(const cipher_t *ciphertext, int ciphertext_len, cipher_t *key,
+    cipher_t *iv, char *plaintext);
