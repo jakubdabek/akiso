@@ -100,6 +100,7 @@ int my_decrypt_base64(const cipher_t *ciphertext, int ciphertext_len, cipher_t *
     BIO_push(encrypter, base64);
     //int size=calcDecodeLength((char*)ciphertext);
     int plaintext_len = BIO_read(encrypter, plaintext, 2048);
+    plaintext[plaintext_len] = '\0';
     BIO_free_all(memm);
 
     return plaintext_len;
