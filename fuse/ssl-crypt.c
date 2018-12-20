@@ -60,15 +60,28 @@ int my_encrypt_base64(const char *plaintext, int plaintext_len, cipher_t *key,
     long ciphertext_len = BIO_get_mem_data(mem, &data);
     memcpy(ciphertext, data, ciphertext_len);
     ciphertext[ciphertext_len] = '\0';
-    strn_replace((char*)ciphertext, ciphertext_len, '/', '_');
+    strn_replace((char*)ciphertext, ciphertext_len, '/', '^');
     BIO_free_all(encrypter);
 
     return ciphertext_len;
 }
 
+static int calcDecodeLength(const char* b64input) { //Calculates the length of a decoded base64 string
+  int len = strlen(b64input);
+  int padding = 0;
+
+  if (b64input[len-1] == '=' && b64input[len-2] == '=') //last two chars are =
+    padding = 2;
+  else if (b64input[len-1] == '=') //last char is =
+    padding = 1;
+
+  return (int)len*0.75 - padding;
+}
+
 int my_decrypt_base64(const cipher_t *ciphertext, int ciphertext_len, cipher_t *key,
     cipher_t *iv, char *plaintext)
 {
+    BIO *main_bio;
     BIO *encrypter;
     if ((encrypter = BIO_new(BIO_f_cipher())) == NULL)
         handleErrors();
@@ -77,17 +90,17 @@ int my_decrypt_base64(const cipher_t *ciphertext, int ciphertext_len, cipher_t *
     if ((base64 = BIO_new(BIO_f_base64())) == NULL)
         handleErrors();
     BIO_set_flags(base64, BIO_FLAGS_BASE64_NO_NL);
-    BIO_push(encrypter, base64);
-    strn_replace((char*)ciphertext, ciphertext_len, '_', '/');
+    // main_bio = BIO_push(encrypter, base64);
+    strn_replace((char*)ciphertext, ciphertext_len, '^', '/');
+    //printf("'%s', %d, %ld\n", (const char*)ciphertext, ciphertext_len, strlen((const char*)ciphertext));
     BIO *memm = BIO_new_mem_buf(ciphertext, ciphertext_len);
-    if ((memm = BIO_new(BIO_s_mem())) == NULL)
+    if (memm == NULL)
         handleErrors();
-    BIO *mem;
-    if ((mem = BIO_new(BIO_s_mem())) == NULL)
-        handleErrors();
-    BIO_push(encrypter, mem);
-    int plaintext_len = BIO_read(mem, plaintext, 128);
-    BIO_free_all(encrypter);
+    BIO_push(base64, memm);
+    BIO_push(encrypter, base64);
+    //int size=calcDecodeLength((char*)ciphertext);
+    int plaintext_len = BIO_read(encrypter, plaintext, 2048);
+    BIO_free_all(memm);
 
     return plaintext_len;
 }

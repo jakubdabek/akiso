@@ -1,3 +1,5 @@
+#include "ssl-crypt.h"
+
 #include <openssl/buffer.h>
 #include <openssl/conf.h>
 #include <openssl/evp.h>
@@ -92,83 +94,18 @@ int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
     return plaintext_len;
 }
 
-int my_encrypt_base64(unsigned char *plaintext, int plaintext_len, unsigned char *key,
-  unsigned char *iv, unsigned char *ciphertext)
+#ifdef TEST1
+void test1(char *plaintext)
 {
-    BIO *encrypter;
-    if ((encrypter = BIO_new(BIO_f_cipher())) == NULL)
-        handleErrors();
-    BIO_set_cipher(encrypter, EVP_aes_128_cbc(), key, iv, 1); //1 for encrypt
-    // BIO *output1;
-    // if ((output1 = BIO_new_fp(stdout, BIO_NOCLOSE)) == NULL)
-    //     handleErrors();
-    // BIO_push(encrypter, output1);
-    BIO *base64;
-    if ((base64 = BIO_new(BIO_f_base64())) == NULL)
-        handleErrors();
-    BIO_set_flags(base64, BIO_FLAGS_BASE64_NO_NL);
-    BIO_push(encrypter, base64);
-    // BIO *output;
-    // if ((output = BIO_new_fp(stdout, BIO_NOCLOSE)) == NULL)
-    //     handleErrors();
-    // BIO_push(encrypter, output);
-    BIO *mem;
-    if ((mem = BIO_new(BIO_s_mem())) == NULL)
-        handleErrors();
-    BIO_push(encrypter, mem);
-
-    BIO_write(encrypter, plaintext, plaintext_len);
-    BIO_flush(encrypter);
-    char *data;
-    long ciphertext_len = BIO_get_mem_data(mem, &data);
-    //printf("%ld read: %*s\n",ciphertext_len, ciphertext_len, data);
-    memcpy(ciphertext, data, ciphertext_len);
-    ciphertext[ciphertext_len] = '\0';
-    BIO_free_all(encrypter);
-
-    return ciphertext_len;
-}
-
-int my_decrypt_base64(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
-    unsigned char *iv, unsigned char *plaintext)
-{
-    BIO *encrypter;
-    if ((encrypter = BIO_new(BIO_f_cipher())) == NULL)
-        handleErrors();
-    BIO_set_cipher(encrypter, EVP_aes_128_cbc(), key, iv, 0); //0 for decrypt
-    BIO *base64;
-    if ((base64 = BIO_new(BIO_f_base64())) == NULL)
-        handleErrors();
-    BIO_set_flags(base64, BIO_FLAGS_BASE64_NO_NL);
-    BIO_push(encrypter, base64);
-    BIO *memm = BIO_new_mem_buf(ciphertext, ciphertext_len);
-    if ((memm = BIO_new(BIO_s_mem())) == NULL)
-        handleErrors();
-    BIO *mem;
-    if ((mem = BIO_new(BIO_s_mem())) == NULL)
-        handleErrors();
-    BIO_push(encrypter, mem);
-    int plaintext_len = BIO_read(mem, plaintext, 128);
-    BIO_free_all(encrypter);
-
-    return plaintext_len;
-}
-
-int main (void)
-{
-    /* Set up the key and iv. Do I need to say to not hard code these in a
-    * real application? :-)
-    */
-
     /* A 256 bit key */
     unsigned char *key = (unsigned char *)"0123456789012345";
+    BIO_dump_fp (stdout, (const char*)key, 16);
 
     /* A 128 bit IV */
     unsigned char *iv = (unsigned char *)"0123456789012345";
 
     /* Message to be encrypted */
-    unsigned char *plaintext =
-                    (unsigned char *)"The quick brown fox jumps over the lazy dog";
+    
 
     /* Buffer for ciphertext. Ensure the buffer is long enough for the
     * ciphertext which may be longer than the plaintext, dependant on the
@@ -182,36 +119,86 @@ int main (void)
     int decryptedtext_len, ciphertext_len;
 
     /* Encrypt the plaintext */
-    ciphertext_len = encrypt (plaintext, strlen ((char *)plaintext), key, iv,
+    ciphertext_len = encrypt ((cipher_t*)plaintext, strlen ((char *)plaintext), key, iv,
                                 ciphertext);
 
     /* Do something useful with the ciphertext here */
     printf("Ciphertext is:\n");
     BIO_dump_fp (stdout, (const char *)ciphertext, ciphertext_len);
-    printf("My cipher:\n");
-    unsigned char ciphertext_base64[128];
+    unsigned char ciphertext_base64[1024];
     int ciphertext_base64_len;
     ciphertext_base64_len = my_encrypt_base64(plaintext, strlen ((char *)plaintext), key, iv,
                                 ciphertext_base64);
-    printf("Ciphertext is:\n");
-    printf("%*s\n", ciphertext_base64_len, ciphertext_base64);
+    printf("MyCiphertext is:\n");
+    printf("len: %d, '%*s'\n", ciphertext_base64_len, ciphertext_base64_len, ciphertext_base64);
 
     /* Decrypt the ciphertext */
-    decryptedtext_len = decrypt(ciphertext, ciphertext_len, key, iv,
-        decryptedtext);
+    // decryptedtext_len = decrypt(ciphertext, ciphertext_len, key, iv,
+    //     decryptedtext);
 
-    /* Add a NULL terminator. We are expecting printable text */
-    decryptedtext[decryptedtext_len] = '\0';
+    // /* Add a NULL terminator. We are expecting printable text */
+    // decryptedtext[decryptedtext_len] = '\0';
 
-    /* Show the decrypted text */
-    printf("Decrypted text is:\n");
-    printf("'%s'\n", decryptedtext);
+    // /* Show the decrypted text */
+    // printf("Decrypted text is:\n");
+    // printf("'%s'\n", decryptedtext);
 
-    decryptedtext_len = my_decrypt_base64(ciphertext_base64, ciphertext_base64_len, key, iv, decryptedtext);
+    decryptedtext_len = my_decrypt_base64(ciphertext_base64, ciphertext_base64_len, key, iv, (char*)decryptedtext);
+    BIO_dump_fp (stdout, (const char *)decryptedtext, decryptedtext_len);
     decryptedtext[decryptedtext_len] = '\0';
     printf("MyDecrypted text is:\n");
-    printf("'%s'\n", decryptedtext);
+    printf("len: %d, '%s'\n", decryptedtext_len, decryptedtext);
+}
+#endif
+
+#ifdef TEST2
+void test2(int argc, char *argv[])
+{
+    cipher_t key[16];
+    cipher_t *iv = (cipher_t*)"0123456789012345";
+    if (argc < 2)
+    {
+        fprintf(stderr, "Usage: %s <key>\n", argv[0]);
+        exit(1);
+    }
+    strncpy((char*)key, argv[argc-1], 16);
+    memset(key + strlen((char*)key), 0, 16 - strlen((char*)key));
+    argv[argc-2] = argv[argc-1];
+    argv[argc-1] = NULL;
+    argc--;
+    BIO_dump_fp (stdout, (const char*)key, 16);
+    char *plaintext;
+    cipher_t ciphertext_base64[2048];
+    char decryptedtext[2048];
+    size_t size = 0;
+    int ret;
+    while ((ret = getline(&plaintext, &size, stdin)) != -1)
+    {
+        plaintext[ret - 1] = '\0';
+        int ciphertext_base64_len;
+        ciphertext_base64_len = my_encrypt_base64(plaintext, strlen(plaintext), key, iv, ciphertext_base64);
+        printf("Ciphertext is:\n");
+        printf("'%*s'\n", ciphertext_base64_len, ciphertext_base64);
 
 
-    return 0;
+        int decryptedtext_len = my_decrypt_base64(ciphertext_base64, ciphertext_base64_len, key, iv, decryptedtext);
+        // decryptedtext[decryptedtext_len] = '\0';
+        printf("MyDecrypted text is:\n");
+        printf("'%s'\n", decryptedtext);
+    }
+}
+#endif
+int main (int argc, char *argv[])
+{
+#ifdef TEST1
+    char *plaintext = (char *)"The quick brown fox jumps over the lazy dog";
+    test1(plaintext);
+    plaintext = (char *)"asd";
+    test1(plaintext);
+    plaintext = (char *)"Why the fuck";
+    test1(plaintext);
+#endif
+#ifdef TEST2
+    test2(argc, argv);
+#endif
 }
