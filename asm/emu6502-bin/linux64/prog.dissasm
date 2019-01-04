@@ -1,0 +1,27 @@
+PC:1000 lda #$00    		a9 00 
+PC:1002 sta $80     		85 80 
+PC:1004 lda #$20    		a9 20 
+PC:1006 sta $81     		85 81 
+PC:1008 ldy #$00    		a0 00 
+PC:100a lda #$a5    		a9 a5 
+PC:100c jsr $1017   		20 17 10 
+PC:100f lda #$00    		a9 00 
+PC:1011 ldx #$20    		a2 20 
+PC:1013 jsr $ff80   		20 80 ff 
+PC:1016 brk         		00 
+PC:1017 sta $102c   		8d 2c 10 
+PC:101a ldx #$07    		a2 07 
+PC:101c lda #$30    		a9 30 
+PC:101e asl $102c   		0e 2c 10 
+PC:1021 bcc $1025   		90 02 
+PC:1023 lda #$31    		a9 31 
+PC:1025 sta ($80),y 		91 80 
+PC:1027 iny         		c8 
+PC:1028 dex         		ca 
+PC:1029 bpl $101c   		10 f1 
+PC:102b rts         		60 
+PC:102c brk         		00 
+PC:102d brk         		00 
+PC:102e brk         		00 
+PC:102f brk         		00 
+PC:1030 brk         		00 
